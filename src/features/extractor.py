@@ -30,7 +30,7 @@ DINOV2_MODELS = {
 class DINOv3FeatureExtractor:
     """使用 DINOv3/DINOv2 预训练模型提取图片特征"""
     
-    def __init__(self, model_name: str = "dinov3_base", device: str = None):
+    def __init__(self, model_name: str = "dinov2_vitb14", device: str = None):
         """
         初始化特征提取器
         

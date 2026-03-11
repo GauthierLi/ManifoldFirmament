@@ -37,8 +37,8 @@ def main():
     parser.add_argument(
         "--model",
         type=str,
-        default="dinov3_base",
-        help="DINOv3 模型版本"
+        default="dinov2_vitb14",
+        help="模型版本 (dinov2_vitb14, dinov2_vitl14, etc.)"
     )
     parser.add_argument(
         "--batch-size",

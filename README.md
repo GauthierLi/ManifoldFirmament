@@ -14,7 +14,7 @@ pip install -r requirements.txt
 ### 2. 运行处理流水线
 
 ```bash
-python src/main.py /path/to/image_paths.txt
+python src/main.py /path/to/image_paths.txt --model dinov2_vitb14
 ```
 
 ### 3. 启动可视化服务
