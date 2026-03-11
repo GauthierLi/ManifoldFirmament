@@ -18,15 +18,24 @@ from tqdm import tqdm
 from src.models import FeatureBatch
 
 
+# DINOv2 模型名称映射
+DINOV2_MODELS = {
+    "dinov3_base": "dinov2_vitb14",      # 224x224, 768 dims
+    "dinov3_large": "dinov2_vitl14",     # 224x224, 1024 dims
+    "dinov3_small": "dinov2_vits14",     # 224x224, 384 dims
+    "dinov3_tiny": "dinov2_vitt14",      # 224x224, 192 dims
+}
+
+
 class DINOv3FeatureExtractor:
-    """使用 DINOv3 预训练模型提取图片特征"""
+    """使用 DINOv3/DINOv2 预训练模型提取图片特征"""
     
     def __init__(self, model_name: str = "dinov3_base", device: str = None):
         """
         初始化特征提取器
         
         Args:
-            model_name: 模型名称 (dinov3_base, dinov3_large, etc.)
+            model_name: 模型名称 (dinov3_base, dinov3_large, dinov2_vitb14, etc.)
             device: 计算设备 (cuda/cpu)
         """
         self.model_name = model_name
@@ -34,24 +43,35 @@ class DINOv3FeatureExtractor:
         self.model = None
         self.transform = None
         
+        # 模型名称映射
+        if model_name in DINOV2_MODELS:
+            self.dinov2_name = DINOV2_MODELS[model_name]
+        else:
+            self.dinov2_name = model_name
+        
         print(f"使用设备：{self.device}")
     
     def load_model(self):
-        """加载 DINOv3 预训练模型"""
+        """加载 DINOv3/DINOv2 预训练模型"""
         if self.model is not None:
             return
         
-        print(f"加载 DINOv3 模型：{self.model_name}...")
+        print(f"加载模型：{self.model_name}...")
         
-        # 使用 torch.hub 加载 DINOv3
-        # 注意：DINOv3 可能需要从 facebookresearch 仓库加载
+        # 优先尝试 DINOv3
         try:
             self.model = torch.hub.load('facebookresearch/dinov3', self.model_name)
+            print("✓ DINOv3 加载成功")
         except Exception as e:
-            print(f"DINOv3 加载失败，尝试 dinov2 作为备选：{e}")
+            print(f"DINOv3 加载失败，尝试 dinov2：{e}")
             # 备选方案：使用 DINOv2
-            self.model = torch.hub.load('facebookresearch/dinov2', self.model_name.replace('dinov3', 'dinov2'))
-            self.model_name = self.model_name.replace('dinov3', 'dinov2')
+            try:
+                self.model = torch.hub.load('facebookresearch/dinov2', self.dinov2_name)
+                self.model_name = self.dinov2_name
+                print(f"✓ DINOv2 加载成功：{self.model_name}")
+            except Exception as e2:
+                print(f"DINOv2 加载失败：{e2}")
+                raise RuntimeError(f"无法加载模型：{e2}")
         
         self.model.to(self.device)
         self.model.eval()
@@ -68,7 +88,7 @@ class DINOv3FeatureExtractor:
                 transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]),
             ])
         
-        print(f"模型加载完成：{self.model_name}")
+        print(f"模型就绪：{self.model_name}")
     
     def preprocess_image(self, image_path: str) -> torch.Tensor:
         """预处理单张图片"""
