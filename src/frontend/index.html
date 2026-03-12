@@ -142,29 +142,356 @@
             color: #9ca3af;
             font-size: 12px;
         }
+        
+        #data-panel {
+            position: absolute;
+            top: 20px;
+            right: 20px;
+            background: rgba(0, 0, 0, 0.85);
+            padding: 20px;
+            border-radius: 12px;
+            max-width: 400px;
+            backdrop-filter: blur(10px);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+        }
+        
+        #data-panel h2 {
+            font-size: 16px;
+            margin-bottom: 15px;
+            color: #60a5fa;
+        }
+        
+        .data-option {
+            margin-bottom: 12px;
+        }
+        
+        .data-option label {
+            display: block;
+            margin-bottom: 6px;
+            color: #9ca3af;
+            font-size: 14px;
+        }
+        
+        .data-option select,
+        .data-option input[type="file"] {
+            width: 100%;
+            padding: 8px 12px;
+            background: rgba(255, 255, 255, 0.1);
+            border: 1px solid rgba(255, 255, 255, 0.2);
+            border-radius: 6px;
+            color: #fff;
+            font-size: 14px;
+        }
+        
+        .data-option select:focus {
+            outline: none;
+            border-color: #60a5fa;
+        }
+        
+        .data-option select option {
+            background: #1a1a2e;
+            color: #fff;
+        }
+        
+        #btn-load {
+            width: 100%;
+            padding: 10px;
+            background: #60a5fa;
+            color: #000;
+            border: none;
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 14px;
+            font-weight: 500;
+            transition: all 0.2s;
+            margin-top: 10px;
+        }
+        
+        #btn-load:hover {
+            background: #3b82f6;
+        }
+        
+        #btn-load:disabled {
+            background: #4b5563;
+            cursor: not-allowed;
+        }
+        
+        #status-msg {
+            margin-top: 10px;
+            font-size: 13px;
+            color: #9ca3af;
+        }
+        
+        #status-msg.success {
+            color: #34d399;
+        }
+        
+        #status-msg.error {
+            color: #f87171;
+        }
+        
+        #processing {
+            display: none;
+            margin-top: 10px;
+        }
+        
+        #processing .spinner-small {
+            width: 20px;
+            height: 20px;
+            border: 3px solid rgba(255, 255, 255, 0.1);
+            border-top-color: #60a5fa;
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+            display: inline-block;
+            vertical-align: middle;
+            margin-right: 8px;
+        }
+        
+        #log-panel {
+            position: absolute;
+            bottom: 80px;
+            right: 20px;
+            width: 600px;
+            height: 300px;
+            background: rgba(0, 0, 0, 0.9);
+            border-radius: 12px;
+            border: 1px solid rgba(255, 255, 255, 0.15);
+            display: flex;
+            flex-direction: column;
+            backdrop-filter: blur(10px);
+            z-index: 100;
+        }
+        
+        #log-controls {
+            display: flex;
+            gap: 4px;
+        }
+        
+        #log-controls button {
+            background: rgba(255, 255, 255, 0.1);
+            border: none;
+            color: #fff;
+            width: 28px;
+            height: 24px;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 14px;
+            transition: all 0.2s;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+        
+        #log-controls button:hover {
+            background: rgba(255, 255, 255, 0.2);
+        }
+        
+        #log-controls button.active {
+            background: #60a5fa;
+            color: #000;
+        }
+        
+        #log-content {
+            flex: 1;
+            overflow-y: auto;
+            padding: 12px;
+            font-family: 'Monaco', 'Menlo', 'Ubuntu Mono', monospace;
+            font-size: 12px;
+            line-height: 1.5;
+        }
+        
+        #log-content .log-line {
+            margin-bottom: 4px;
+            white-space: pre-wrap;
+            word-break: break-all;
+        }
+        
+        #log-content .log-line.info {
+            color: #9ca3af;
+        }
+        
+        #log-content .log-line.success {
+            color: #34d399;
+        }
+        
+        #log-content .log-line.warning {
+            color: #fbbf24;
+        }
+        
+        #log-content .log-line.error {
+            color: #f87171;
+        }
+        
+        #log-content .log-line.highlight {
+            color: #60a5fa;
+            font-weight: 500;
+        }
+        
+        #log-content::-webkit-scrollbar {
+            width: 8px;
+        }
+        
+        #log-content::-webkit-scrollbar-track {
+            background: rgba(255, 255, 255, 0.05);
+            border-radius: 4px;
+        }
+        
+        #log-content::-webkit-scrollbar-thumb {
+            background: rgba(255, 255, 255, 0.2);
+            border-radius: 4px;
+        }
+        
+        #log-content::-webkit-scrollbar-thumb:hover {
+            background: rgba(255, 255, 255, 0.3);
+        }
+        
+        #log-panel.collapsed #log-content {
+            display: none;
+        }
+        
+        #log-panel.collapsed {
+            width: auto;
+        }
+        
+        /* 面板最小化状态 */
+        .draggable-panel.minimized .panel-content {
+            display: none;
+        }
+        
+        .draggable-panel.minimized {
+            height: auto !important;
+        }
+        
+        .panel-header button {
+            background: rgba(255, 255, 255, 0.1);
+            border: none;
+            color: #fff;
+            width: 24px;
+            height: 24px;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 16px;
+            line-height: 1;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            margin-left: 4px;
+        }
+        
+        .panel-header button:hover {
+            background: rgba(255, 255, 255, 0.2);
+        }
+        
+        /* 可拖动窗口通用样式 */
+        .draggable-panel {
+            position: absolute;
+            cursor: move;
+            user-select: none;
+        }
+        
+        .draggable-panel .panel-header {
+            cursor: move;
+            padding: 8px 12px;
+            background: rgba(96, 165, 250, 0.15);
+            border-radius: 12px 12px 0 0;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        
+        .draggable-panel .panel-header:active {
+            cursor: grabbing;
+        }
+        
+        .draggable-panel .panel-content {
+            cursor: default;
+            user-select: text;
+        }
+        
+        /* 吸附提示 */
+        .snap-indicator {
+            position: absolute;
+            background: rgba(96, 165, 250, 0.5);
+            border: 2px solid #60a5fa;
+            border-radius: 4px;
+            pointer-events: none;
+            z-index: 9999;
+            transition: all 0.1s ease;
+        }
+        
+        /* 自动排版布局预设位置 */
+        .layout-top-left { top: 20px; left: 20px; }
+        .layout-top-right { top: 20px; right: 20px; }
+        .layout-bottom-left { bottom: 80px; left: 20px; }
+        .layout-bottom-right { bottom: 80px; right: 20px; }
     </style>
 </head>
 <body>
     <div id="canvas-container"></div>
     
-    <div id="info-panel">
-        <h1>🌌 DINOv3 UMAP 可视化</h1>
-        <div class="stat">
-            <span class="stat-label">点数</span>
-            <span class="stat-value" id="stat-points">-</span>
+    <div id="info-panel" class="draggable-panel layout-top-left">
+        <div class="panel-header">
+            <span>🌌 统计信息</span>
+            <button class="panel-minimize" title="最小化">−</button>
         </div>
-        <div class="stat">
-            <span class="stat-label">特征维度</span>
-            <span class="stat-value" id="stat-dim">-</span>
+        <div class="panel-content">
+            <div class="stat">
+                <span class="stat-label">点数</span>
+                <span class="stat-value" id="stat-points">-</span>
+            </div>
+            <div class="stat">
+                <span class="stat-label">特征维度</span>
+                <span class="stat-value" id="stat-dim">-</span>
+            </div>
+            <div class="stat">
+                <span class="stat-label">模型</span>
+                <span class="stat-value" id="stat-model">-</span>
+            </div>
+            <div class="stat">
+                <span class="stat-label">UMAP 邻居</span>
+                <span class="stat-value" id="stat-neighbors">-</span>
+            </div>
         </div>
-        <div class="stat">
-            <span class="stat-label">模型</span>
-            <span class="stat-value" id="stat-model">-</span>
+    </div>
+    
+    <div id="data-panel" class="draggable-panel layout-top-right">
+        <div class="panel-header">
+            <span>📁 数据集</span>
+            <button class="panel-minimize" title="最小化">−</button>
         </div>
-        <div class="stat">
-            <span class="stat-label">UMAP 邻居</span>
-            <span class="stat-value" id="stat-neighbors">-</span>
+        <div class="panel-content" style="padding:12px;">
+        <div class="data-option">
+            <label for="dataset-select">预设数据集</label>
+            <select id="dataset-select">
+                <option value="">-- 选择预设 --</option>
+                <option value="test_paths.txt">test_paths.txt (50 张)</option>
+                <option value="test_paths_2000.txt">test_paths_2000.txt (2000 张)</option>
+            </select>
         </div>
+        <div class="data-option">
+            <label for="file-upload">或上传 paths.txt 文件</label>
+            <input type="file" id="file-upload" accept=".txt">
+        </div>
+        <button id="btn-load">🚀 加载并处理</button>
+        <div id="status-msg"></div>
+        <div id="processing">
+            <span class="spinner-small"></span>
+            <span id="processing-text">处理中，请稍候...</span>
+        </div>
+        </div>
+    </div>
+    
+    <div id="log-panel" class="draggable-panel layout-bottom-right">
+        <div class="panel-header">
+            <span>📜 处理日志</span>
+            <div id="log-controls">
+                <button id="btn-log-scroll" class="active" title="自动滚动">📜</button>
+                <button id="btn-log-clear" title="清空日志">🗑️</button>
+                <button id="btn-log-collapse" title="折叠/展开">📐</button>
+                <button class="panel-minimize" title="最小化">−</button>
+            </div>
+        </div>
+        <div class="panel-content" id="log-content"></div>
     </div>
     
     <div id="loading">
@@ -182,6 +509,6 @@
     
     <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
-    <script src="viewer.js"></script>
+    <script src="/static/viewer.js?v=2"></script>
 </body>
 </html>

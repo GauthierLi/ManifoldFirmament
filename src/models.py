@@ -76,17 +76,29 @@ class VisualizationData:
     
     def to_json_dict(self) -> dict:
         """转换为 JSON 可序列化格式"""
+        def to_python_type(value):
+            """将 numpy 类型转换为 Python 原生类型"""
+            if isinstance(value, np.ndarray):
+                return value.tolist()
+            elif hasattr(value, 'item'):  # numpy 标量类型
+                return value.item()
+            elif isinstance(value, (list, tuple)):
+                return [to_python_type(v) for v in value]
+            elif isinstance(value, dict):
+                return {k: to_python_type(v) for k, v in value.items()}
+            return value
+        
         return {
             "points": [
                 {
-                    "x": p.x,
-                    "y": p.y,
-                    "z": p.z,
+                    "x": float(p.x) if hasattr(p.x, 'item') else p.x,
+                    "y": float(p.y) if hasattr(p.y, 'item') else p.y,
+                    "z": float(p.z) if hasattr(p.z, 'item') else p.z,
                     "image_path": p.image_path,
-                    "original_index": p.original_index,
-                    "color": p.color
+                    "original_index": int(p.original_index) if hasattr(p.original_index, 'item') else p.original_index,
+                    "color": [float(c) if hasattr(c, 'item') else c for c in p.color]
                 }
                 for p in self.points
             ],
-            "metadata": self.metadata
+            "metadata": to_python_type(self.metadata)
         }
