@@ -11,7 +11,9 @@ FastAPI 可视化服务
 """
 
 import json
+import os
 import subprocess
+import sys
 import threading
 import time
 from pathlib import Path
@@ -204,16 +206,17 @@ async def process_dataset(
             try:
                 add_log(f"开始处理：{input_file.name}")
                 add_log(f"输出文件：{output_name}")
-                
-                env = {
-                    "PYTHONPATH": str(project_root),
-                    "PATH": "/home/gauthierli/miniconda3/envs/umap/bin:" + 
-                          "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
-                }
-                
+
+                # 使用当前环境的Python和PATH
+                python_path = sys.executable
+
+                # 复制当前环境变量，确保PATH使用系统默认值
+                env = os.environ.copy()
+                env["PYTHONPATH"] = str(project_root)
+
                 process = subprocess.Popen(
                     [
-                        "/home/gauthierli/miniconda3/envs/umap/bin/python",
+                        python_path,
                         str(project_root / "src" / "main.py"),
                         str(input_file),
                         "--output", str(output_file)

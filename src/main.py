@@ -6,7 +6,7 @@ DINOv3 UMAP 3D 可视化 - 主入口
     python src/main.py /path/to/image_paths.txt
     
 示例：
-    python src/main.py /home/gauthierli/data/subtype/train_images_dir/paths.txt
+    python src/main.py /path/to/paths.txt
 """
 
 import sys
