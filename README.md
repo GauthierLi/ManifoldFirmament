@@ -109,3 +109,8 @@ this.snapDistance = 20;  // 边缘吸附距离（像素）
 - **数据文件不提交** - `output/`、`*.txt` 测试数据已加入 `.gitignore`
 - **后台处理** - 大文件处理在后台线程运行，不会阻塞 UI
 - **日志限制** - 最多保留 1000 条日志，避免内存占用过高
+
+## 效果展示
+![alt text](assets/screenshot_1773300799940.png)
+![alt text](assets/screenshot_1773300806899.png)
+![alt text](assets/screenshot_1773300815946.png)
