@@ -15,9 +15,9 @@ import subprocess
 import threading
 import time
 from pathlib import Path
-from fastapi import FastAPI, UploadFile, File, Form
+from fastapi import FastAPI, UploadFile, File, Form, Query
 from fastapi.staticfiles import StaticFiles
-from fastapi.responses import HTMLResponse, JSONResponse
+from fastapi.responses import HTMLResponse, JSONResponse, FileResponse
 import uvicorn
 
 app = FastAPI(title="DINOv3 UMAP 3D 可视化")
@@ -63,18 +63,27 @@ async def view_page():
 
 
 @app.get("/api/data")
-async def get_data():
+async def get_data(file: str = None):
     """获取可视化数据"""
-    # 查找最新的 visualization_*.json 文件
-    json_files = sorted(output_dir.glob("visualization_*.json"), key=lambda p: p.stat().st_mtime, reverse=True)
-    
-    if not json_files:
-        return JSONResponse(
-            status_code=404,
-            content={"error": "数据文件不存在，请先运行处理流水线"}
-        )
-    
-    data_file = json_files[0]  # 最新的文件
+    if file:
+        # 指定文件名
+        data_file = output_dir / file
+        if not data_file.exists():
+            return JSONResponse(
+                status_code=404,
+                content={"error": f"文件不存在：{file}"}
+            )
+    else:
+        # 查找最新的 visualization_*.json 文件
+        json_files = sorted(output_dir.glob("visualization_*.json"), key=lambda p: p.stat().st_mtime, reverse=True)
+        
+        if not json_files:
+            return JSONResponse(
+                status_code=404,
+                content={"error": "数据文件不存在，请先运行处理流水线"}
+            )
+        
+        data_file = json_files[0]  # 最新的文件
     
     with open(data_file, 'r', encoding='utf-8') as f:
         data = json.load(f)
@@ -112,6 +121,15 @@ def add_log(message: str):
             processing_logs.pop(0)
 
 
+@app.get("/api/image")
+async def get_image(path: str = Query(..., description="图片的绝对路径")):
+    """代理本地图片文件，供前端加载"""
+    image_path = Path(path)
+    if not image_path.is_file():
+        return JSONResponse(status_code=404, content={"error": "图片不存在"})
+    return FileResponse(str(image_path))
+
+
 @app.get("/api/datasets")
 async def list_datasets():
     """获取可用数据集列表"""
@@ -142,6 +160,7 @@ async def process_dataset(
                     status_code=400,
                     content={"success": False, "error": "数据集不存在"}
                 )
+            output_name = f"visualization_{Path(dataset).stem}.json"
         elif type == "upload":
             # 上传文件
             if file is None:
@@ -160,8 +179,20 @@ async def process_dataset(
                 content={"success": False, "error": "无效的类型"}
             )
         
-        # 启动后台处理进程
+        # ⭐ 检查输出文件是否已存在
         output_file = output_dir / output_name
+        if output_file.exists():
+            add_log(f"✅ 输出文件已存在：{output_name}，跳过处理")
+            return JSONResponse(
+                content={
+                    "success": True,
+                    "message": "数据已存在，无需重新处理",
+                    "output": output_name,
+                    "skipped": True
+                }
+            )
+        
+        # 启动后台处理进程
         
         # 清空之前的日志
         with log_lock:
@@ -225,7 +256,8 @@ async def process_dataset(
             content={
                 "success": True,
                 "message": "处理已启动",
-                "output": output_name
+                "output": output_name,
+                "skipped": False
             }
         )
         

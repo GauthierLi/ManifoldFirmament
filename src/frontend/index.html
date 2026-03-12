@@ -353,6 +353,131 @@
             width: auto;
         }
         
+        /* 采点卡片 — 始终可见的面板 */
+        #selection-card {
+            position: absolute;
+            left: 20px;
+            bottom: 80px;
+            width: 500px;
+            max-height: 50vh;
+            background: rgba(0, 0, 0, 0.9);
+            border-radius: 12px;
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            backdrop-filter: blur(10px);
+            z-index: 100;
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+        }
+        
+        .card-radius-control {
+            padding: 12px 16px;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+            display: flex;
+            align-items: center;
+            gap: 12px;
+        }
+        
+        .card-radius-control label {
+            color: #9ca3af;
+            font-size: 13px;
+            white-space: nowrap;
+        }
+        
+        #radius-value {
+            color: #60a5fa;
+            font-weight: 600;
+        }
+        
+        #radius-slider {
+            flex: 1;
+            height: 6px;
+            border-radius: 3px;
+            background: rgba(255, 255, 255, 0.1);
+            outline: none;
+            -webkit-appearance: none;
+        }
+        
+        #radius-slider::-webkit-slider-thumb {
+            -webkit-appearance: none;
+            width: 16px;
+            height: 16px;
+            border-radius: 50%;
+            background: #60a5fa;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+        
+        #radius-slider::-webkit-slider-thumb:hover {
+            background: #3b82f6;
+            transform: scale(1.2);
+        }
+        
+        .card-images {
+            flex: 1;
+            overflow-x: auto;
+            overflow-y: hidden;
+            white-space: nowrap;
+            padding: 16px;
+            display: flex;
+            gap: 12px;
+            align-items: center;
+        }
+        
+        .card-images::-webkit-scrollbar {
+            height: 8px;
+        }
+        
+        .card-images::-webkit-scrollbar-track {
+            background: rgba(255, 255, 255, 0.05);
+            border-radius: 4px;
+        }
+        
+        .card-images::-webkit-scrollbar-thumb {
+            background: rgba(255, 255, 255, 0.2);
+            border-radius: 4px;
+        }
+        
+        .card-images::-webkit-scrollbar-thumb:hover {
+            background: rgba(255, 255, 255, 0.3);
+        }
+        
+        .card-placeholder {
+            color: #9ca3af;
+            font-size: 13px;
+            padding: 20px;
+            text-align: center;
+            width: 100%;
+        }
+        
+        /* 采点模式光标 */
+        #canvas-container.pick-mode canvas {
+            cursor: crosshair !important;
+        }
+        
+        .neighbor-image-wrapper {
+            flex-shrink: 0;
+            width: 120px;
+            height: 120px;
+            border-radius: 8px;
+            overflow: hidden;
+            background: rgba(255, 255, 255, 0.05);
+            border: 2px solid rgba(96, 165, 250, 0.3);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+        
+        .neighbor-image-wrapper img {
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+        }
+        
+        .neighbor-image-wrapper img:not([src]) {
+            visibility: hidden;
+        }
+        
         /* 面板最小化状态 */
         .draggable-panel.minimized .panel-content {
             display: none;
@@ -382,6 +507,15 @@
             background: rgba(255, 255, 255, 0.2);
         }
         
+        .panel-header button.active {
+            background: #60a5fa;
+            color: #000;
+        }
+        
+        .panel-header .panel-close:hover {
+            background: rgba(248, 113, 113, 0.5);
+        }
+        
         /* 可拖动窗口通用样式 */
         .draggable-panel {
             position: absolute;
@@ -406,6 +540,48 @@
         .draggable-panel .panel-content {
             cursor: default;
             user-select: text;
+            overflow: auto;
+        }
+        
+        /* 缩放手柄 */
+        .panel-resize-handle {
+            position: absolute;
+            right: 0;
+            bottom: 0;
+            width: 16px;
+            height: 16px;
+            cursor: nwse-resize;
+            z-index: 10;
+        }
+        
+        .panel-resize-handle::before,
+        .panel-resize-handle::after {
+            content: '';
+            position: absolute;
+            right: 4px;
+            height: 1.5px;
+            background: rgba(255, 255, 255, 0.25);
+            transform: rotate(-45deg);
+            transform-origin: right center;
+        }
+        
+        .panel-resize-handle::before {
+            bottom: 10px;
+            width: 12px;
+        }
+        
+        .panel-resize-handle::after {
+            bottom: 5px;
+            width: 7px;
+        }
+        
+        .panel-resize-handle:hover::before,
+        .panel-resize-handle:hover::after {
+            background: rgba(96, 165, 250, 0.6);
+        }
+        
+        .draggable-panel.minimized .panel-resize-handle {
+            display: none;
         }
         
         /* 吸附提示 */
@@ -505,10 +681,8 @@
         <button id="btn-screenshot">📷 截图</button>
     </div>
     
-    <div id="tooltip"></div>
-    
     <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
-    <script src="/static/viewer.js?v=2"></script>
+    <script src="/static/viewer.js?v=6"></script>
 </body>
 </html>
