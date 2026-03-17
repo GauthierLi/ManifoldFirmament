@@ -486,6 +486,8 @@
         #radius-value {
             color: #60a5fa;
             font-weight: 600;
+            cursor: pointer;
+            border-bottom: 1px dashed rgba(96, 165, 250, 0.4);
         }
         
         #radius-slider {
@@ -1216,8 +1218,114 @@
             color: #9ca3af;
             font-variant-numeric: tabular-nums;
         }
+
+        /* 右键图片预览弹窗 */
+        #image-preview-popup {
+            display: none;
+            position: fixed;
+            z-index: 1500;
+            background: rgba(20, 20, 30, 0.95);
+            border: 1px solid rgba(255, 255, 255, 0.12);
+            border-radius: 12px;
+            box-shadow: 0 12px 40px rgba(0, 0, 0, 0.6);
+            overflow: hidden;
+            min-width: 200px;
+            max-width: 400px;
+        }
+
+        #image-preview-popup.visible {
+            display: block;
+            animation: previewFadeIn 0.15s ease;
+        }
+
+        @keyframes previewFadeIn {
+            from { opacity: 0; transform: scale(0.92); }
+            to   { opacity: 1; transform: scale(1); }
+        }
+
+        .preview-toolbar {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 6px 10px;
+            background: rgba(255, 255, 255, 0.04);
+            border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+            cursor: move;
+        }
+
+        .preview-toolbar span {
+            font-size: 11px;
+            color: #9ca3af;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+            max-width: 240px;
+        }
+
+        .preview-toolbar-btns {
+            display: flex;
+            gap: 4px;
+            flex-shrink: 0;
+        }
+
+        .preview-toolbar-btns button {
+            background: rgba(255, 255, 255, 0.08);
+            border: none;
+            color: #d1d5db;
+            width: 24px;
+            height: 24px;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 13px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            transition: background 0.15s;
+        }
+
+        .preview-toolbar-btns button:hover {
+            background: rgba(255, 255, 255, 0.18);
+            color: #fff;
+        }
+
+        .preview-img-container {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 8px;
+            min-height: 160px;
+        }
+
+        .preview-img-container img {
+            max-width: 100%;
+            max-height: 360px;
+            border-radius: 6px;
+            object-fit: contain;
+        }
+
+        /* 全屏图片查看 */
+        #image-fullscreen-overlay {
+            display: none;
+            position: fixed;
+            inset: 0;
+            z-index: 3000;
+            background: rgba(0, 0, 0, 0.9);
+            justify-content: center;
+            align-items: center;
+            cursor: zoom-out;
+        }
+
+        #image-fullscreen-overlay.open {
+            display: flex;
+        }
+
+        #image-fullscreen-overlay img {
+            max-width: 95vw;
+            max-height: 95vh;
+            object-fit: contain;
+            border-radius: 4px;
+        }
     </style>
-</head>
 <body>
     <div id="canvas-container"></div>
     
@@ -1288,6 +1396,25 @@
     <div id="loading" style="display:none">
         <div class="spinner"></div>
         <p>加载数据中...</p>
+    </div>
+
+    <!-- 右键图片预览弹窗 -->
+    <div id="image-preview-popup">
+        <div class="preview-toolbar">
+            <span id="preview-title"></span>
+            <div class="preview-toolbar-btns">
+                <button id="btn-preview-fullscreen" title="全屏查看">⛶</button>
+                <button id="btn-preview-close" title="关闭">✕</button>
+            </div>
+        </div>
+        <div class="preview-img-container">
+            <img id="preview-img" alt="预览">
+        </div>
+    </div>
+
+    <!-- 全屏图片查看 -->
+    <div id="image-fullscreen-overlay">
+        <img id="fullscreen-img" alt="全屏预览">
     </div>
     
     <div id="controls-fab" class="collapsed">

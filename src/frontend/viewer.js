@@ -396,7 +396,9 @@ class Viewer3D {
         
         // 点选交互
         this.selectedPointIndex = null;
-        this.neighborRadius = 5.0;
+        this.neighborRadius = 0;       // 实际绝对半径（由 _radiusRatio * _maxRadius 得出）
+        this._radiusRatio = 0.15;      // 半径比例 0-1
+        this._maxRadius = 1;           // 选中点到最远点的距离
         this.originalColors = null;
         this.pickMode = false;
         this._imageObserver = null;
@@ -407,6 +409,9 @@ class Viewer3D {
         this.hoverScale = 3;
         this.rotateSpeed = 2.0;
         this.camSmooth = 0.15;
+        
+        // 选择半径球体
+        this._radiusSphere = null;
         
         // 相机平滑过渡（1€ 滤波器）
         this._camTargetFilter = new OneEuroVector3Filter(60, this.camSmooth, 0.1, 1.0);
@@ -660,8 +665,8 @@ class Viewer3D {
             </div>
             <div class="panel-content">
                 <div class="card-radius-control">
-                    <label>半径：<span id="radius-value">${this.neighborRadius.toFixed(1)}</span></label>
-                    <input type="range" id="radius-slider" min="0.5" max="20" step="0.5" value="${this.neighborRadius}">
+                    <label>半径：<span id="radius-value" title="双击输入">${this._radiusRatio.toFixed(2)}</span></label>
+                    <input type="range" id="radius-slider" min="0" max="1" step="0.01" value="${this._radiusRatio}">
                 </div>
                 <div class="card-images" id="card-images">
                     <span class="card-placeholder">点击 🔍 启用采点工具，再点击点云采点</span>
@@ -682,16 +687,69 @@ class Viewer3D {
             this.deselectPoint();
         });
         
-        // 半径滑块
+        // 半径滑块（0-1 比例）
         document.getElementById('radius-slider').addEventListener('input', (e) => {
-            this.neighborRadius = parseFloat(e.target.value);
-            document.getElementById('radius-value').textContent = this.neighborRadius.toFixed(1);
+            this._radiusRatio = parseFloat(e.target.value);
+            this.neighborRadius = this._radiusRatio * this._maxRadius;
+            document.getElementById('radius-value').textContent = this._radiusRatio.toFixed(2);
             
             if (this.selectedPointIndex !== null) {
                 const neighbors = this.findNeighbors(this.selectedPointIndex, this.neighborRadius);
                 this.updateSelectionImages(neighbors);
                 this.updatePointColors(neighbors);
+                this._updateRadiusSphere(this.selectedPointIndex, this.neighborRadius);
             }
+        });
+
+        // 双击半径数值可输入
+        const radiusControl = card.querySelector('.card-radius-control');
+        radiusControl.addEventListener('dblclick', (e) => {
+            const radiusSpan = document.getElementById('radius-value');
+            if (!radiusSpan || e.target !== radiusSpan) return;
+            e.stopPropagation();
+            
+            const current = this._radiusRatio;
+            const input = document.createElement('input');
+            input.type = 'number';
+            input.min = '0';
+            input.max = '1';
+            input.step = '0.01';
+            input.value = current.toFixed(2);
+            input.style.cssText = 'width:52px;background:rgba(255,255,255,0.1);border:1px solid #60a5fa;border-radius:4px;color:#60a5fa;font-size:13px;font-weight:600;padding:1px 4px;text-align:center;outline:none;';
+            
+            radiusSpan.replaceWith(input);
+            input.focus();
+            input.select();
+            
+            const commit = () => {
+                let v = parseFloat(input.value);
+                if (isNaN(v)) v = current;
+                v = Math.max(0, Math.min(1, v));
+                this._radiusRatio = v;
+                this.neighborRadius = v * this._maxRadius;
+                
+                const span = document.createElement('span');
+                span.id = 'radius-value';
+                span.title = '双击输入';
+                span.style.cursor = 'pointer';
+                span.textContent = v.toFixed(2);
+                input.replaceWith(span);
+                
+                document.getElementById('radius-slider').value = v;
+                
+                if (this.selectedPointIndex !== null) {
+                    const neighbors = this.findNeighbors(this.selectedPointIndex, this.neighborRadius);
+                    this.updateSelectionImages(neighbors);
+                    this.updatePointColors(neighbors);
+                    this._updateRadiusSphere(this.selectedPointIndex, this.neighborRadius);
+                }
+            };
+            
+            input.addEventListener('blur', commit);
+            input.addEventListener('keydown', (ev) => {
+                if (ev.key === 'Enter') input.blur();
+                if (ev.key === 'Escape') { input.value = current.toFixed(2); input.blur(); }
+            });
         });
     }
     
@@ -703,11 +761,6 @@ class Viewer3D {
         
         // 切换画布光标
         document.getElementById('canvas-container').classList.toggle('pick-mode', this.pickMode);
-        
-        // 退出采点模式时隐藏高亮点
-        if (!this.pickMode && this._highlightPoint) {
-            this._highlightPoint.visible = false;
-        }
     }
     
     // ---- 过滤器卡片 ----
@@ -1073,12 +1126,12 @@ class Viewer3D {
         let pointerDownPos = null;
         
         this.renderer.domElement.addEventListener('pointerdown', (e) => {
-            if (!this.pickMode) return;
+            if (!this.pickMode || e.button !== 0) return;
             pointerDownPos = { x: e.clientX, y: e.clientY };
         });
         
         this.renderer.domElement.addEventListener('pointerup', (e) => {
-            if (!this.pickMode || !pointerDownPos) return;
+            if (!this.pickMode || e.button !== 0 || !pointerDownPos) return;
             if (DraggablePanel.activePanel) { pointerDownPos = null; return; }
             
             // 移动超过 5px 视为拖拽，不触发选点
@@ -1103,18 +1156,100 @@ class Viewer3D {
             }
         });
         
+        // 右键预览图片
+        let rightDownPos = null;
+        this.renderer.domElement.addEventListener('pointerdown', (e) => {
+            if (e.button === 2) rightDownPos = { x: e.clientX, y: e.clientY };
+        });
+        
         this.renderer.domElement.addEventListener('contextmenu', (e) => {
             e.preventDefault();
+            if (!this.points || !rightDownPos) return;
+            const dx = e.clientX - rightDownPos.x;
+            const dy = e.clientY - rightDownPos.y;
+            rightDownPos = null;
+            if (Math.sqrt(dx * dx + dy * dy) > 5) return;
+
+            this.mouse.x = (e.clientX / window.innerWidth) * 2 - 1;
+            this.mouse.y = -(e.clientY / window.innerHeight) * 2 + 1;
+            this.raycaster.setFromCamera(this.mouse, this.camera);
+            this.raycaster.params.Points.threshold = 0.5;
+
+            const intersects = this.raycaster.intersectObject(this.points);
+            const idx = this._pickClosestToRay(intersects);
+            if (idx >= 0) {
+                this._showImagePreview(idx, e.clientX, e.clientY);
+            }
         });
     }
     
+    /**
+     * 右键预览：在鼠标位置弹出图片预览窗口
+     */
+    _showImagePreview(index, clientX, clientY) {
+        const p = this.points.userData.pointsData[index];
+        const popup = document.getElementById('image-preview-popup');
+        const img = document.getElementById('preview-img');
+        const title = document.getElementById('preview-title');
+
+        const imgUrl = '/api/image?path=' + encodeURIComponent(p.image_path);
+        img.src = imgUrl;
+        title.textContent = p.image_path.split('/').pop();
+        title.title = p.image_path;
+
+        // 将右键点钉入高亮缓冲区 slot 1
+        this._hlPinnedIdx = index;
+        // 如果悬浮槽碰巧是同一个点，清空悬浮槽避免重复
+        if (this._hlHoverIdx === index) this._hlHoverIdx = -1;
+        this._syncHighlightBuffer();
+
+        popup.classList.add('visible');
+
+        // 有上次位置则复用，否则定位到鼠标附近
+        if (this._previewLastPos) {
+            popup.style.left = this._previewLastPos.x + 'px';
+            popup.style.top = this._previewLastPos.y + 'px';
+        } else {
+            requestAnimationFrame(() => {
+                const rect = popup.getBoundingClientRect();
+                let x = clientX + 8;
+                let y = clientY + 8;
+                if (x + rect.width > window.innerWidth - 8) x = clientX - rect.width - 8;
+                if (y + rect.height > window.innerHeight - 8) y = clientY - rect.height - 8;
+                x = Math.max(8, x);
+                y = Math.max(8, y);
+                popup.style.left = x + 'px';
+                popup.style.top = y + 'px';
+                this._previewLastPos = { x, y };
+            });
+        }
+    }
+    
+    _closeImagePreview() {
+        const popup = document.getElementById('image-preview-popup');
+        // 记住当前位置
+        if (popup.classList.contains('visible')) {
+            const rect = popup.getBoundingClientRect();
+            this._previewLastPos = { x: rect.left, y: rect.top };
+        }
+        popup.classList.remove('visible');
+        // 从高亮缓冲区移除钉住的点
+        this._hlPinnedIdx = -1;
+        this._syncHighlightBuffer();
+    }
+
     selectPoint(index) {
         const isFirstSelection = this.selectedPointIndex === null;
         this.selectedPointIndex = index;
         
+        // 计算最远距离，将比例转为绝对半径
+        this._maxRadius = this._computeMaxRadius(index);
+        this.neighborRadius = this._radiusRatio * this._maxRadius;
+        
         const neighbors = this.findNeighbors(index, this.neighborRadius);
         this.updateSelectionImages(neighbors);
         this.updatePointColors(neighbors);
+        this._updateRadiusSphere(index, this.neighborRadius);
         
         // 相机聚焦到选中点
         this._flyToPoint(index, isFirstSelection);
@@ -1149,6 +1284,52 @@ class Viewer3D {
     _dataToWorld(p) {
         const offset = this.points.position;
         return new THREE.Vector3(p.x + offset.x, p.y + offset.y, p.z + offset.z);
+    }
+    
+    /**
+     * 将活跃的高亮槽位写入缓冲区并更新 drawRange
+     * slot 0 = 悬浮点, slot 1 = 右键钉住点
+     */
+    _syncHighlightBuffer() {
+        if (!this._highlightPoint || !this.points) return;
+        const geo = this._highlightPoint.geometry;
+        const pos = geo.attributes.position;
+        const col = geo.attributes.color;
+        const origColors = this.points.userData.originalColors;
+        const pointsData = this.points.userData.pointsData;
+        
+        let count = 0;
+        const slots = [this._hlHoverIdx, this._hlPinnedIdx];
+        for (const idx of slots) {
+            if (idx < 0) continue;
+            const p = pointsData[idx];
+            pos.setXYZ(count, p.x, p.y, p.z);
+            col.setXYZ(count, origColors[idx * 3], origColors[idx * 3 + 1], origColors[idx * 3 + 2]);
+            count++;
+        }
+        
+        pos.needsUpdate = true;
+        col.needsUpdate = true;
+        geo.setDrawRange(0, count);
+        this._highlightPoint.visible = count > 0;
+    }
+    
+    /**
+     * 更新选择半径指示球的位置和大小
+     */
+    _updateRadiusSphere(index, radius) {
+        if (!this._radiusSphere || !this.points) return;
+        const p = this.points.userData.pointsData[index];
+        const worldPos = this._dataToWorld(p);
+        this._radiusSphere.position.copy(worldPos);
+        this._radiusSphere.scale.setScalar(radius);
+        this._radiusSphere.visible = true;
+        // 虚线比例需要随缩放调整
+        this._radiusSphere.computeLineDistances();
+    }
+    
+    _hideRadiusSphere() {
+        if (this._radiusSphere) this._radiusSphere.visible = false;
     }
     
     /**
@@ -1231,6 +1412,22 @@ class Viewer3D {
         }
     }
     
+    /**
+     * 计算从 centerIndex 到最远有效点的距离
+     */
+    _computeMaxRadius(centerIndex) {
+        const c = this.points.userData.pointsData[centerIndex];
+        let maxDist = 0;
+        this.points.userData.pointsData.forEach((p, i) => {
+            if (i === centerIndex) return;
+            if (this._filteredIndices && !this._filteredIndices.has(i)) return;
+            const dx = p.x - c.x, dy = p.y - c.y, dz = p.z - c.z;
+            const d = Math.sqrt(dx * dx + dy * dy + dz * dz);
+            if (d > maxDist) maxDist = d;
+        });
+        return maxDist || 1;
+    }
+
     findNeighbors(centerIndex, radius) {
         const centerPoint = this.points.userData.pointsData[centerIndex];
         const neighbors = [centerIndex];
@@ -1333,6 +1530,7 @@ class Viewer3D {
     
     deselectPoint() {
         this.selectedPointIndex = null;
+        this._hideRadiusSphere();
         
         // 断开懒加载 observer
         if (this._imageObserver) {
@@ -1612,25 +1810,47 @@ class Viewer3D {
         };
         this.scene.add(this.points);
         
-        // 悬停高亮点（采点模式下鼠标所在点放大 3 倍显示）
+        // 高亮点缓冲区（最多 2 个点：slot0=悬浮, slot1=右键钉住）
         if (this._highlightPoint) {
             this.scene.remove(this._highlightPoint);
         }
+        const HL_MAX = 2;
         const hlGeometry = new THREE.BufferGeometry();
-        hlGeometry.setAttribute('position', new THREE.BufferAttribute(new Float32Array(3), 3));
-        hlGeometry.setAttribute('color', new THREE.BufferAttribute(new Float32Array(3), 3));
+        hlGeometry.setAttribute('position', new THREE.BufferAttribute(new Float32Array(HL_MAX * 3), 3));
+        hlGeometry.setAttribute('color', new THREE.BufferAttribute(new Float32Array(HL_MAX * 3), 3));
+        hlGeometry.setDrawRange(0, 0);
         const hlMaterial = new THREE.PointsMaterial({
             size: this.pointSize * this.hoverScale,
             vertexColors: true,
             transparent: true,
             opacity: 1.0,
             sizeAttenuation: false,
-            depthTest: false   // 始终在最前面渲染
+            depthTest: false
         });
         this._highlightPoint = new THREE.Points(hlGeometry, hlMaterial);
-        this._highlightPoint.visible = false;
         this._highlightPoint.renderOrder = 999;
+        this._hlHoverIdx = -1;
+        this._hlPinnedIdx = -1;
         this.scene.add(this._highlightPoint);
+        
+        // 选择半径指示球体（灰色虚线）
+        if (this._radiusSphere) {
+            this.scene.remove(this._radiusSphere);
+        }
+        const sphereGeo = new THREE.SphereGeometry(1, 32, 24);
+        const wireGeo = new THREE.EdgesGeometry(sphereGeo);
+        const sphereMat = new THREE.LineDashedMaterial({
+            color: 0x888888,
+            dashSize: 0.3,
+            gapSize: 0.15,
+            transparent: true,
+            opacity: 0.5,
+            depthTest: true
+        });
+        this._radiusSphere = new THREE.LineSegments(wireGeo, sphereMat);
+        this._radiusSphere.visible = false;
+        this._radiusSphere.computeLineDistances();
+        this.scene.add(this._radiusSphere);
         
         const centerX = (minX + maxX) / 2;
         const centerY = (minY + maxY) / 2;
@@ -1653,10 +1873,7 @@ class Viewer3D {
     }
     
     onMouseMove(event) {
-        if (!this.pickMode || !this.points || !this._highlightPoint) {
-            if (this._highlightPoint) this._highlightPoint.visible = false;
-            return;
-        }
+        if (!this.points || !this._highlightPoint) return;
         
         this.mouse.x = (event.clientX / window.innerWidth) * 2 - 1;
         this.mouse.y = -(event.clientY / window.innerHeight) * 2 + 1;
@@ -1665,26 +1882,17 @@ class Viewer3D {
         this.raycaster.params.Points.threshold = 0.5;
         
         const intersects = this.raycaster.intersectObject(this.points);
-        
-        // 按 distanceToRay 排序，选视觉上最接近鼠标的点
         const hitIndex = this._pickClosestToRay(intersects);
         
-        if (hitIndex >= 0) {
-            const p = this.points.userData.pointsData[hitIndex];
-            const hlPos = this._highlightPoint.geometry.attributes.position;
-            hlPos.setXYZ(0, p.x, p.y, p.z);
-            hlPos.needsUpdate = true;
-            
-            // 使用该点的原始颜色
-            const origColors = this.points.userData.originalColors;
-            const hlCol = this._highlightPoint.geometry.attributes.color;
-            hlCol.setXYZ(0, origColors[hitIndex * 3], origColors[hitIndex * 3 + 1], origColors[hitIndex * 3 + 2]);
-            hlCol.needsUpdate = true;
-            
-            this._highlightPoint.visible = true;
+        if (hitIndex >= 0 && hitIndex !== this._hlPinnedIdx) {
+            this._hlHoverIdx = hitIndex;
+        } else if (hitIndex < 0) {
+            this._hlHoverIdx = -1;
         } else {
-            this._highlightPoint.visible = false;
+            // hitIndex === _hlPinnedIdx，钉住的点不重复显示在悬浮槽
+            this._hlHoverIdx = -1;
         }
+        this._syncHighlightBuffer();
     }
     
     onResize() {
@@ -1750,6 +1958,77 @@ document.addEventListener('DOMContentLoaded', () => {
     
     document.getElementById('btn-screenshot').addEventListener('click', () => {
         viewer.takeScreenshot();
+    });
+    
+    // ---- 右键图片预览 ----
+    const previewPopup = document.getElementById('image-preview-popup');
+    const previewToolbar = previewPopup.querySelector('.preview-toolbar');
+    const fullscreenOverlay = document.getElementById('image-fullscreen-overlay');
+    const fullscreenImg = document.getElementById('fullscreen-img');
+
+    // 拖动预览弹窗
+    let previewDrag = null;
+    previewToolbar.addEventListener('mousedown', (e) => {
+        if (e.target.closest('button')) return;
+        const rect = previewPopup.getBoundingClientRect();
+        previewDrag = {
+            startX: e.clientX,
+            startY: e.clientY,
+            origLeft: rect.left,
+            origTop: rect.top
+        };
+        document.body.style.cursor = 'grabbing';
+        e.preventDefault();
+    });
+
+    document.addEventListener('mousemove', (e) => {
+        if (!previewDrag) return;
+        const dx = e.clientX - previewDrag.startX;
+        const dy = e.clientY - previewDrag.startY;
+        previewPopup.style.left = (previewDrag.origLeft + dx) + 'px';
+        previewPopup.style.top = (previewDrag.origTop + dy) + 'px';
+    });
+
+    document.addEventListener('mouseup', () => {
+        if (previewDrag) {
+            previewDrag = null;
+            document.body.style.cursor = 'default';
+        }
+    });
+
+    document.getElementById('btn-preview-close').addEventListener('click', () => {
+        viewer._closeImagePreview();
+    });
+
+    document.getElementById('btn-preview-fullscreen').addEventListener('click', () => {
+        const src = document.getElementById('preview-img').src;
+        if (!src) return;
+        fullscreenImg.src = src;
+        fullscreenOverlay.classList.add('open');
+        viewer._closeImagePreview();
+    });
+
+    fullscreenOverlay.addEventListener('click', () => {
+        fullscreenOverlay.classList.remove('open');
+    });
+
+    // 点击弹窗外部关闭（排除拖动操作）
+    document.addEventListener('pointerdown', (e) => {
+        if (previewDrag) return;
+        if (previewPopup.classList.contains('visible') && !previewPopup.contains(e.target)) {
+            viewer._closeImagePreview();
+        }
+    });
+
+    // Escape 关闭全屏或预览
+    document.addEventListener('keydown', (e) => {
+        if (e.key === 'Escape') {
+            if (fullscreenOverlay.classList.contains('open')) {
+                fullscreenOverlay.classList.remove('open');
+            } else if (previewPopup.classList.contains('visible')) {
+                viewer._closeImagePreview();
+            }
+        }
     });
     
     // ---- 设置弹窗 ----
