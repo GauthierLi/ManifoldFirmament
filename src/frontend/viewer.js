@@ -78,9 +78,9 @@ class OneEuroFilter {
         this._x._alpha = this._alpha(cutoff);
         return this._x.filter(value);
     }
-}
+    }
 
-/**
+    /**
  * 3 分量 1€ 向量滤波器，用于 THREE.Vector3
  */
 class OneEuroVector3Filter {
@@ -418,11 +418,14 @@ class Viewer3D {
         this._camPosFilter = new OneEuroVector3Filter(60, this.camSmooth, 0.1, 1.0);
         this._camTransition = null;  // { targetPos, targetLookAt, startTime }
         this._savedCamState = null;  // 选点前的相机状态 { position, target }
+        this._isRecording = false;
+        this._mediaRecorder = null;
         
         this.init();
         this.initDraggableWindows();
         this.initSelectionCard();
         this.initFilterCard();
+        this.initScreenshotCard();
         this.initDataPanel();
         
         setTimeout(() => DraggablePanel.loadPositions(), 100);
@@ -444,6 +447,7 @@ class Viewer3D {
         const layouts = [
             { id: 'info-panel', left: 20, top: 20 },
             { id: 'filter-card', left: 20, top: 260 },
+            { id: 'screenshot-card', left: viewportWidth - 300, top: viewportHeight - 240 },
             { id: 'data-panel', left: viewportWidth - 420, top: 20 },
             { id: 'log-panel', left: viewportWidth - 620, top: viewportHeight - 380 }
         ];
@@ -817,7 +821,51 @@ class Viewer3D {
             this._resetFilter();
         });
     }
-    
+
+    initScreenshotCard() {
+        const card = document.createElement('div');
+        card.id = 'screenshot-card';
+        card.className = 'draggable-panel';
+        card.innerHTML = `
+            <div class="panel-header">
+                <span>📷 截图</span>
+                <div style="display:flex;gap:4px;">
+                    <button class="panel-minimize" title="最小化">−</button>
+                </div>
+            </div>
+            <div class="panel-content screenshot-body">
+                <div class="screenshot-toggle">
+                    <span>包含界面面板</span>
+                    <label class="toggle-switch">
+                        <input type="checkbox" id="screenshot-include-ui">
+                        <span class="toggle-slider"></span>
+                    </label>
+                </div>
+                <div class="screenshot-buttons">
+                    <button id="btn-take-screenshot">📷 拍照</button>
+                    <button id="btn-record">⏺ 录像</button>
+                </div>
+            </div>
+        `;
+        document.body.appendChild(card);
+
+        new DraggablePanel(card, { saveable: true });
+
+        document.getElementById('btn-take-screenshot').addEventListener('click', () => {
+            const includeUI = document.getElementById('screenshot-include-ui').checked;
+            this.takeScreenshot(includeUI);
+        });
+
+        document.getElementById('btn-record').addEventListener('click', () => {
+            if (this._isRecording) {
+                this.stopRecording();
+            } else {
+                const includeUI = document.getElementById('screenshot-include-ui').checked;
+                this.startRecording(includeUI);
+            }
+        });
+    }
+
     /**
      * 数据加载完成后调用，向后端请求可用过滤器
      */
@@ -1666,7 +1714,7 @@ class Viewer3D {
         );
         this.camera.position.set(0, 0, 50);
         
-        this.renderer = new THREE.WebGLRenderer({ antialias: true });
+        this.renderer = new THREE.WebGLRenderer({ antialias: true, preserveDrawingBuffer: true });
         this.renderer.setSize(window.innerWidth, window.innerHeight);
         this.renderer.setPixelRatio(window.devicePixelRatio);
         document.getElementById('canvas-container').appendChild(this.renderer.domElement);
@@ -1952,14 +2000,181 @@ class Viewer3D {
         this.controls.update();
     }
     
-    takeScreenshot() {
+    takeScreenshot(includeUI = false) {
+        const filename = `screenshot_${new Date().getTime()}.png`;
+
+        if (!includeUI) {
+            // 仅 3D 画布
+            this.renderer.render(this.scene, this.camera);
+            const dataURL = this.renderer.domElement.toDataURL('image/png');
+            const link = document.createElement('a');
+            link.download = filename;
+            link.href = dataURL;
+            link.click();
+            return;
+        }
+
+        // 包含 UI 面板：先隐藏截图卡片自身，避免拍到它
+        const screenshotCard = document.getElementById('screenshot-card');
+        const fab = document.getElementById('controls-fab');
+        const wasCardVisible = screenshotCard && screenshotCard.classList.contains('visible');
+        const wasFabVisible = fab ? fab.style.display : '';
+        if (screenshotCard) screenshotCard.style.display = 'none';
+        if (fab) fab.style.display = 'none';
+
+        // 确保 WebGL canvas 是最新一帧
         this.renderer.render(this.scene, this.camera);
-        const dataURL = this.renderer.domElement.toDataURL('image/png');
-        
-        const link = document.createElement('a');
-        link.download = `screenshot_${new Date().getTime()}.png`;
-        link.href = dataURL;
-        link.click();
+
+        html2canvas(document.body, {
+            useCORS: true,
+            allowTaint: true,
+            backgroundColor: null,
+            scale: window.devicePixelRatio || 1
+        }).then(canvas => {
+            // 恢复被隐藏的元素
+            if (screenshotCard && wasCardVisible) screenshotCard.style.display = '';
+            if (fab) fab.style.display = wasFabVisible;
+
+            const link = document.createElement('a');
+            link.download = filename;
+            link.href = canvas.toDataURL('image/png');
+            link.click();
+        }).catch(() => {
+            if (screenshotCard && wasCardVisible) screenshotCard.style.display = '';
+            if (fab) fab.style.display = wasFabVisible;
+        });
+    }
+
+    async startRecording(includeUI = false) {
+        if (this._isRecording) return;
+
+        const btn = document.getElementById('btn-record');
+        let stream;
+
+        if (includeUI) {
+            // 创建离屏合成 canvas（WebGL 画布 + 面板叠加）
+            const compCanvas = document.createElement('canvas');
+            compCanvas.width = window.innerWidth * (window.devicePixelRatio || 1);
+            compCanvas.height = window.innerHeight * (window.devicePixelRatio || 1);
+            const compCtx = compCanvas.getContext('2d');
+            this._compCanvas = compCanvas;
+            this._compCtx = compCtx;
+
+            // 逐个捕获可见面板，合成到一张透明画布上
+            const dpr = window.devicePixelRatio || 1;
+
+            const capturePanels = async () => {
+                const snapCanvas = document.createElement('canvas');
+                snapCanvas.width = window.innerWidth * dpr;
+                snapCanvas.height = window.innerHeight * dpr;
+                const snapCtx = snapCanvas.getContext('2d');
+
+                const panels = document.querySelectorAll('.draggable-panel');
+                for (const panel of panels) {
+                    if (panel.id === 'screenshot-card') continue;
+                    if (!panel.offsetWidth || !panel.offsetHeight) continue;
+                    if (panel.classList.contains('hidden-to-fab')) continue;
+                    if (panel.style.display === 'none') continue;
+
+                    const rect = panel.getBoundingClientRect();
+                    try {
+                        const c = await html2canvas(panel, {
+                            backgroundColor: null,
+                            scale: dpr,
+                            useCORS: true,
+                            allowTaint: true,
+                        });
+                        snapCtx.drawImage(c,
+                            rect.left * dpr, rect.top * dpr,
+                            rect.width * dpr, rect.height * dpr);
+                    } catch { /* skip this panel */ }
+                }
+                return snapCanvas;
+            };
+
+            this._panelSnapshot = await capturePanels();
+
+            // 定时刷新面板快照（每 2 秒）
+            this._snapshotTimer = setInterval(async () => {
+                if (!this._isRecording) return;
+                try { this._panelSnapshot = await capturePanels(); } catch { /* ignore */ }
+            }, 2000);
+
+            // 合成循环：每帧把 WebGL + 面板快照画到 compCanvas
+            const drawComposite = () => {
+                if (!this._isRecording) return;
+                const dpr = window.devicePixelRatio || 1;
+                const w = window.innerWidth * dpr;
+                const h = window.innerHeight * dpr;
+                if (compCanvas.width !== w || compCanvas.height !== h) {
+                    compCanvas.width = w;
+                    compCanvas.height = h;
+                }
+                compCtx.clearRect(0, 0, w, h);
+                // 画 WebGL 画布（拉伸到全屏）
+                compCtx.drawImage(this.renderer.domElement, 0, 0, w, h);
+                // 叠加面板快照
+                if (this._panelSnapshot) {
+                    compCtx.drawImage(this._panelSnapshot, 0, 0, w, h);
+                }
+                requestAnimationFrame(drawComposite);
+            };
+            requestAnimationFrame(drawComposite);
+
+            stream = compCanvas.captureStream(30);
+        } else {
+            // 仅 3D 画布
+            stream = this.renderer.domElement.captureStream(30);
+        }
+
+        const mimeType = MediaRecorder.isTypeSupported('video/webm;codecs=vp9')
+            ? 'video/webm;codecs=vp9'
+            : 'video/webm';
+        const recorder = new MediaRecorder(stream, { mimeType });
+        const chunks = [];
+
+        recorder.ondataavailable = (e) => {
+            if (e.data.size > 0) chunks.push(e.data);
+        };
+
+        recorder.onstop = () => {
+            const blob = new Blob(chunks, { type: mimeType });
+            const url = URL.createObjectURL(blob);
+            const link = document.createElement('a');
+            link.download = `recording_${new Date().getTime()}.webm`;
+            link.href = url;
+            link.click();
+            URL.revokeObjectURL(url);
+            stream.getTracks().forEach(t => t.stop());
+        };
+
+        recorder.start();
+        this._isRecording = true;
+        this._mediaRecorder = recorder;
+
+        btn.classList.add('recording');
+        btn.textContent = '⏹ 停止录制';
+    }
+
+    stopRecording() {
+        if (!this._isRecording || !this._mediaRecorder) return;
+
+        this._mediaRecorder.stop();
+        this._isRecording = false;
+        this._mediaRecorder = null;
+
+        // 清理合成资源
+        if (this._snapshotTimer) {
+            clearInterval(this._snapshotTimer);
+            this._snapshotTimer = null;
+        }
+        this._compCanvas = null;
+        this._compCtx = null;
+        this._panelSnapshot = null;
+
+        const btn = document.getElementById('btn-record');
+        btn.classList.remove('recording');
+        btn.textContent = '⏺ 录像';
     }
 }
 
@@ -1978,7 +2193,19 @@ document.addEventListener('DOMContentLoaded', () => {
     });
     
     document.getElementById('btn-screenshot').addEventListener('click', () => {
-        viewer.takeScreenshot();
+        const card = document.getElementById('screenshot-card');
+        if (card) {
+            const isVisible = card.classList.contains('visible');
+            // 关闭设置弹窗（如果打开了）
+            const settingsOv = document.getElementById('settings-overlay');
+            if (settingsOv) settingsOv.classList.remove('open');
+            // Toggle 截图卡片
+            if (isVisible) {
+                card.classList.remove('visible');
+            } else {
+                card.classList.add('visible');
+            }
+        }
     });
     
     // ---- 右键图片预览 ----
