@@ -1764,7 +1764,24 @@ class Viewer3D {
         }
     }
     
+    _createCircleTexture(size = 64) {
+        const canvas = document.createElement('canvas');
+        canvas.width = canvas.height = size;
+        const ctx = canvas.getContext('2d');
+        const half = size / 2;
+        const grad = ctx.createRadialGradient(half, half, 0, half, half, half);
+        grad.addColorStop(0.0, 'rgba(255,255,255,1)');
+        grad.addColorStop(0.7, 'rgba(255,255,255,1)');
+        grad.addColorStop(1.0, 'rgba(255,255,255,0)');
+        ctx.fillStyle = grad;
+        ctx.fillRect(0, 0, size, size);
+        const tex = new THREE.CanvasTexture(canvas);
+        tex.needsUpdate = true;
+        return tex;
+    }
+
     createPointCloud() {
+        const circleMap = this._createCircleTexture();
         const points = this.data.points;
         const geometry = new THREE.BufferGeometry();
         
@@ -1800,7 +1817,9 @@ class Viewer3D {
             vertexColors: true,
             transparent: true,
             opacity: this.pointOpacity,
-            sizeAttenuation: false
+            sizeAttenuation: false,
+            map: circleMap,
+            alphaTest: 0.1
         });
         
         this.points = new THREE.Points(geometry, material);
@@ -1825,7 +1844,9 @@ class Viewer3D {
             transparent: true,
             opacity: 1.0,
             sizeAttenuation: false,
-            depthTest: false
+            depthTest: false,
+            map: circleMap,
+            alphaTest: 0.1
         });
         this._highlightPoint = new THREE.Points(hlGeometry, hlMaterial);
         this._highlightPoint.renderOrder = 999;
