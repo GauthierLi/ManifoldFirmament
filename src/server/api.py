@@ -17,10 +17,18 @@ import sys
 import threading
 import time
 from pathlib import Path
-from fastapi import FastAPI, UploadFile, File, Form, Query
+from fastapi import FastAPI, UploadFile, File, Form, Query, Body
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import HTMLResponse, JSONResponse, FileResponse
 import uvicorn
+
+# 确保项目根目录在 sys.path 中，以便 from src.xxx 导入
+_project_root = str(Path(__file__).parent.parent.parent)
+if _project_root not in sys.path:
+    sys.path.insert(0, _project_root)
+
+# 导入过滤器系统（导入即触发注册）
+from src.filters import FilterRegistry
 
 app = FastAPI(title="DINOv3 UMAP 3D 可视化")
 
@@ -281,6 +289,90 @@ async def process_dataset(
             status_code=500,
             content={"success": False, "error": str(e)}
         )
+
+
+# ---- 过滤器 API ----
+
+@app.post("/api/filters")
+async def get_filters(body: dict = Body(...)):
+    """
+    获取当前数据集可用的过滤器列表及参数 schema。
+
+    请求体：
+        { "points": [...] }  或  { "file": "visualization_xxx.json" }
+    """
+    points = body.get("points")
+
+    # 如果前端没直接传 points，则从文件加载
+    if not points:
+        filename = body.get("file")
+        if filename:
+            data_file = output_dir / filename
+        else:
+            json_files = sorted(output_dir.glob("visualization_*.json"),
+                                key=lambda p: p.stat().st_mtime, reverse=True)
+            data_file = json_files[0] if json_files else None
+
+        if not data_file or not data_file.exists():
+            return JSONResponse(status_code=404, content={"error": "数据文件不存在"})
+
+        with open(data_file, "r", encoding="utf-8") as f:
+            data = json.load(f)
+        points = data.get("points", [])
+
+    # 检查数据中是否存在标签
+    has_labels = any(p.get("labels") for p in points)
+
+    filters_info = []
+    for flt in FilterRegistry.all():
+        # 如果数据无标签，跳过需要标签的过滤器
+        if flt.name == "category" and not has_labels:
+            continue
+        filters_info.append(flt.to_dict(points))
+
+    return JSONResponse(content={"filters": filters_info, "has_labels": has_labels})
+
+
+@app.post("/api/filter")
+async def apply_filter(body: dict = Body(...)):
+    """
+    应用过滤器，返回通过过滤的点索引列表。
+
+    请求体：
+        {
+            "filter_name": "category",
+            "params": { "categories": ["1", "2"] },
+            "file": "visualization_xxx.json"   // 可选
+        }
+    """
+    filter_name = body.get("filter_name")
+    params = body.get("params", {})
+
+    flt = FilterRegistry.get(filter_name)
+    if not flt:
+        return JSONResponse(status_code=400,
+                            content={"error": f"未知过滤器：{filter_name}"})
+
+    # 加载数据点
+    points = body.get("points")
+    if not points:
+        filename = body.get("file")
+        if filename:
+            data_file = output_dir / filename
+        else:
+            json_files = sorted(output_dir.glob("visualization_*.json"),
+                                key=lambda p: p.stat().st_mtime, reverse=True)
+            data_file = json_files[0] if json_files else None
+
+        if not data_file or not data_file.exists():
+            return JSONResponse(status_code=404, content={"error": "数据文件不存在"})
+
+        with open(data_file, "r", encoding="utf-8") as f:
+            data = json.load(f)
+        points = data.get("points", [])
+
+    indices = flt.apply(points, params)
+    return JSONResponse(content={"indices": indices, "total": len(points), "filtered": len(indices)})
 
 
 if __name__ == "__main__":

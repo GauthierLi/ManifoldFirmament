@@ -265,6 +265,7 @@ class Viewer3D {
         this.init();
         this.initDraggableWindows();
         this.initSelectionCard();
+        this.initFilterCard();
         this.initDataPanel();
         
         setTimeout(() => DraggablePanel.loadPositions(), 100);
@@ -285,6 +286,7 @@ class Viewer3D {
         
         const layouts = [
             { id: 'info-panel', left: 20, top: 20 },
+            { id: 'filter-card', left: 20, top: 260 },
             { id: 'data-panel', left: viewportWidth - 420, top: 20 },
             { id: 'log-panel', left: viewportWidth - 620, top: viewportHeight - 380 }
         ];
@@ -549,30 +551,403 @@ class Viewer3D {
         
         // 切换画布光标
         document.getElementById('canvas-container').classList.toggle('pick-mode', this.pickMode);
+        
+        // 退出采点模式时隐藏高亮点
+        if (!this.pickMode && this._highlightPoint) {
+            this._highlightPoint.visible = false;
+        }
+    }
+    
+    // ---- 过滤器卡片 ----
+    
+    initFilterCard() {
+        this._filterData = null;      // 可用过滤器列表（从后端获取）
+        this._activeFilter = null;    // 当前选中的过滤器名称
+        this._filterParams = {};      // 当前参数值
+        this._filteredIndices = null; // 当前过滤结果（null = 未过滤）
+        
+        const card = document.createElement('div');
+        card.id = 'filter-card';
+        card.className = 'draggable-panel';
+        card.innerHTML = `
+            <div class="panel-header">
+                <span>🔖 数据过滤</span>
+                <div style="display:flex;gap:4px;">
+                    <button class="panel-minimize" title="最小化">−</button>
+                </div>
+            </div>
+            <div class="panel-content" style="padding:0;display:flex;flex-direction:column;">
+                <div class="filter-select-row">
+                    <label>过滤方法</label>
+                    <select id="filter-method-select">
+                        <option value="">-- 请选择 --</option>
+                    </select>
+                </div>
+                <div class="filter-params" id="filter-params-container"></div>
+                <div class="filter-actions">
+                    <button id="btn-filter-apply">应用过滤</button>
+                    <button id="btn-filter-reset">重置</button>
+                </div>
+                <div class="filter-status" id="filter-status"></div>
+            </div>
+        `;
+        document.body.appendChild(card);
+        
+        new DraggablePanel(card, { saveable: true });
+        
+        // 过滤方法切换
+        document.getElementById('filter-method-select').addEventListener('change', (e) => {
+            this._activeFilter = e.target.value || null;
+            this._filterParams = {};
+            this._renderFilterParams();
+        });
+        
+        // 应用过滤
+        document.getElementById('btn-filter-apply').addEventListener('click', () => {
+            this._applyFilter();
+        });
+        
+        // 重置
+        document.getElementById('btn-filter-reset').addEventListener('click', () => {
+            this._resetFilter();
+        });
+    }
+    
+    /**
+     * 数据加载完成后调用，向后端请求可用过滤器
+     */
+    async _loadFilters() {
+        const card = document.getElementById('filter-card');
+        if (!card) return;
+        
+        try {
+            const res = await fetch('/api/filters', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ points: this.data.points })
+            });
+            const result = await res.json();
+            
+            if (!result.has_labels || !result.filters || result.filters.length === 0) {
+                card.classList.remove('visible');
+                this._filterData = null;
+                return;
+            }
+            
+            this._filterData = result.filters;
+            
+            // 填充过滤方法下拉
+            const select = document.getElementById('filter-method-select');
+            select.innerHTML = '<option value="">-- 请选择 --</option>';
+            result.filters.forEach(f => {
+                const opt = document.createElement('option');
+                opt.value = f.name;
+                opt.textContent = f.display_name;
+                select.appendChild(opt);
+            });
+            
+            // 重置状态
+            this._activeFilter = null;
+            this._filterParams = {};
+            this._filteredIndices = null;
+            document.getElementById('filter-params-container').innerHTML = '';
+            document.getElementById('filter-status').textContent = '';
+            
+            card.classList.add('visible');
+        } catch (err) {
+            console.error('加载过滤器失败:', err);
+            card.classList.remove('visible');
+        }
+    }
+    
+    /**
+     * 根据当前选中的过滤器，渲染参数控件
+     */
+    _renderFilterParams() {
+        const container = document.getElementById('filter-params-container');
+        container.innerHTML = '';
+        
+        if (!this._activeFilter || !this._filterData) return;
+        
+        const filterInfo = this._filterData.find(f => f.name === this._activeFilter);
+        if (!filterInfo) return;
+        
+        filterInfo.params.forEach(param => {
+            const group = document.createElement('div');
+            group.className = 'filter-param-group';
+            
+            const label = document.createElement('label');
+            label.textContent = param.label;
+            group.appendChild(label);
+            
+            switch (param.type) {
+                case 'select':
+                    this._renderSelectParam(group, param);
+                    break;
+                case 'multi_select':
+                    this._renderMultiSelectParam(group, param);
+                    break;
+                case 'range':
+                    this._renderRangeParam(group, param);
+                    break;
+                case 'text':
+                    this._renderTextParam(group, param);
+                    break;
+            }
+            
+            container.appendChild(group);
+        });
+    }
+    
+    _renderSelectParam(group, param) {
+        const select = document.createElement('select');
+        select.style.cssText = 'width:100%;padding:7px 10px;background:rgba(255,255,255,0.1);border:1px solid rgba(255,255,255,0.2);border-radius:6px;color:#fff;font-size:13px;outline:none;';
+        
+        (param.options || []).forEach(opt => {
+            const o = document.createElement('option');
+            o.value = opt;
+            o.textContent = opt;
+            o.style.cssText = 'background:#1a1a2e;color:#fff;';
+            if (opt === param.default) o.selected = true;
+            select.appendChild(o);
+        });
+        
+        this._filterParams[param.key] = param.default || (param.options ? param.options[0] : '');
+        select.addEventListener('change', () => {
+            this._filterParams[param.key] = select.value;
+        });
+        
+        group.appendChild(select);
+    }
+    
+    _renderMultiSelectParam(group, param) {
+        const options = param.options || [];
+        const defaults = new Set(param.default || options);
+        this._filterParams[param.key] = [...defaults];
+        
+        // 全选 / 全不选 按钮
+        const actions = document.createElement('div');
+        actions.className = 'filter-chip-actions';
+        
+        const btnAll = document.createElement('button');
+        btnAll.textContent = '全选';
+        
+        const btnNone = document.createElement('button');
+        btnNone.textContent = '全不选';
+        
+        const btnInvert = document.createElement('button');
+        btnInvert.textContent = '反选';
+        
+        actions.appendChild(btnAll);
+        actions.appendChild(btnNone);
+        actions.appendChild(btnInvert);
+        group.appendChild(actions);
+        
+        const grid = document.createElement('div');
+        grid.className = 'filter-checkbox-grid';
+        
+        const chips = [];
+        
+        options.forEach(opt => {
+            const chip = document.createElement('span');
+            chip.className = 'filter-chip' + (defaults.has(opt) ? ' selected' : '');
+            chip.textContent = opt;
+            chip.dataset.value = opt;
+            
+            chip.addEventListener('click', () => {
+                chip.classList.toggle('selected');
+                this._syncMultiSelect(param.key, chips);
+            });
+            
+            chips.push(chip);
+            grid.appendChild(chip);
+        });
+        
+        btnAll.addEventListener('click', () => {
+            chips.forEach(c => c.classList.add('selected'));
+            this._syncMultiSelect(param.key, chips);
+        });
+        
+        btnNone.addEventListener('click', () => {
+            chips.forEach(c => c.classList.remove('selected'));
+            this._syncMultiSelect(param.key, chips);
+        });
+        
+        btnInvert.addEventListener('click', () => {
+            chips.forEach(c => c.classList.toggle('selected'));
+            this._syncMultiSelect(param.key, chips);
+        });
+        
+        group.appendChild(grid);
+    }
+    
+    _syncMultiSelect(key, chips) {
+        this._filterParams[key] = chips
+            .filter(c => c.classList.contains('selected'))
+            .map(c => c.dataset.value);
+    }
+    
+    _renderRangeParam(group, param) {
+        const row = document.createElement('div');
+        row.style.cssText = 'display:flex;align-items:center;gap:10px;';
+        
+        const slider = document.createElement('input');
+        slider.type = 'range';
+        slider.min = param.min ?? 0;
+        slider.max = param.max ?? 100;
+        slider.step = param.step ?? 1;
+        slider.value = param.default ?? param.min ?? 0;
+        slider.style.flex = '1';
+        
+        const valueLabel = document.createElement('span');
+        valueLabel.style.cssText = 'color:#60a5fa;font-size:13px;font-weight:600;min-width:40px;text-align:right;';
+        valueLabel.textContent = slider.value;
+        
+        this._filterParams[param.key] = parseFloat(slider.value);
+        slider.addEventListener('input', () => {
+            valueLabel.textContent = slider.value;
+            this._filterParams[param.key] = parseFloat(slider.value);
+        });
+        
+        row.appendChild(slider);
+        row.appendChild(valueLabel);
+        group.appendChild(row);
+    }
+    
+    _renderTextParam(group, param) {
+        const input = document.createElement('input');
+        input.type = 'text';
+        input.placeholder = param.label || '';
+        input.value = param.default || '';
+        
+        this._filterParams[param.key] = input.value;
+        input.addEventListener('input', () => {
+            this._filterParams[param.key] = input.value;
+        });
+        
+        group.appendChild(input);
+    }
+    
+    async _applyFilter() {
+        if (!this._activeFilter) return;
+        
+        const statusEl = document.getElementById('filter-status');
+        statusEl.textContent = '过滤中...';
+        
+        try {
+            const res = await fetch('/api/filter', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    filter_name: this._activeFilter,
+                    params: this._filterParams,
+                    points: this.data.points
+                })
+            });
+            const result = await res.json();
+            
+            if (result.error) {
+                statusEl.textContent = '过滤失败：' + result.error;
+                return;
+            }
+            
+            this._filteredIndices = new Set(result.indices);
+            // 清除当前选点（选中的点或邻居可能被过滤掉），deselectPoint 会自动应用过滤着色
+            this.deselectPoint();
+            
+            statusEl.innerHTML = `显示 <span class="count">${result.filtered}</span> / ${result.total} 个点`;
+        } catch (err) {
+            console.error('应用过滤失败:', err);
+            statusEl.textContent = '过滤失败：' + err.message;
+        }
+    }
+    
+    _resetFilter() {
+        this._filteredIndices = null;
+        // 清除当前选点，恢复全部颜色
+        this.deselectPoint();
+        document.getElementById('filter-status').textContent = '';
+        
+        // 重置下拉
+        const select = document.getElementById('filter-method-select');
+        if (select) select.value = '';
+        this._activeFilter = null;
+        this._filterParams = {};
+        document.getElementById('filter-params-container').innerHTML = '';
+    }
+    
+    _applyFilterToPointCloud() {
+        if (!this.points || !this._filteredIndices) return;
+        
+        const colors = this.points.geometry.attributes.color;
+        const originalColors = this.points.userData.originalColors;
+        const positions = this.points.geometry.attributes.position;
+        
+        for (let i = 0; i < colors.count; i++) {
+            if (this._filteredIndices.has(i)) {
+                colors.setXYZ(i,
+                    originalColors[i * 3],
+                    originalColors[i * 3 + 1],
+                    originalColors[i * 3 + 2]
+                );
+            } else {
+                colors.setXYZ(i, 0.08, 0.08, 0.08);
+            }
+        }
+        
+        colors.needsUpdate = true;
+    }
+    
+    _restoreAllPointVisibility() {
+        if (!this.points || !this.points.userData.originalColors) return;
+        
+        const colors = this.points.geometry.attributes.color;
+        const originalColors = this.points.userData.originalColors;
+        
+        for (let i = 0; i < colors.count; i++) {
+            colors.setXYZ(i,
+                originalColors[i * 3],
+                originalColors[i * 3 + 1],
+                originalColors[i * 3 + 2]
+            );
+        }
+        colors.needsUpdate = true;
     }
     
     // ---- 点击交互：仅在采点模式下生效 ----
     
     initPointSelection() {
-        this.renderer.domElement.addEventListener('click', (e) => {
-            if (DraggablePanel.activePanel) return;
+        // 使用 pointerdown/pointerup 代替 click，避免 OrbitControls 微量拖拽吞掉 click 事件
+        let pointerDownPos = null;
+        
+        this.renderer.domElement.addEventListener('pointerdown', (e) => {
             if (!this.pickMode) return;
-            if (e.target.closest('#selection-card')) return;
+            pointerDownPos = { x: e.clientX, y: e.clientY };
+        });
+        
+        this.renderer.domElement.addEventListener('pointerup', (e) => {
+            if (!this.pickMode || !pointerDownPos) return;
+            if (DraggablePanel.activePanel) { pointerDownPos = null; return; }
+            
+            // 移动超过 5px 视为拖拽，不触发选点
+            const dx = e.clientX - pointerDownPos.x;
+            const dy = e.clientY - pointerDownPos.y;
+            pointerDownPos = null;
+            if (Math.sqrt(dx * dx + dy * dy) > 5) return;
             
             this.mouse.x = (e.clientX / window.innerWidth) * 2 - 1;
             this.mouse.y = -(e.clientY / window.innerHeight) * 2 + 1;
             
             this.raycaster.setFromCamera(this.mouse, this.camera);
+            this.raycaster.params.Points.threshold = 0.5;
             
             if (this.points) {
                 const intersects = this.raycaster.intersectObject(this.points);
                 
-                if (intersects.length > 0) {
-                    const index = intersects[0].instanceId !== undefined ? 
-                                  intersects[0].instanceId : intersects[0].index;
+                const index = this._pickClosestToRay(intersects);
+                if (index >= 0) {
                     this.selectPoint(index);
                 }
-                // 点击空白处不取消选择，避免误触
             }
         });
         
@@ -589,12 +964,37 @@ class Viewer3D {
         this.updatePointColors(neighbors);
     }
     
+    /**
+     * 从 raycaster 交点列表中，选出视觉上最接近鼠标的有效点。
+     * 按 distanceToRay（射线垂直距离）排序，而非按 distance（相机距离）排序。
+     * @returns {number} 点索引，无命中返回 -1
+     */
+    _pickClosestToRay(intersects) {
+        let bestIndex = -1;
+        let bestDist = Infinity;
+        
+        for (const hit of intersects) {
+            const idx = hit.instanceId !== undefined ? hit.instanceId : hit.index;
+            // 跳过被过滤掉的点
+            if (this._filteredIndices && !this._filteredIndices.has(idx)) continue;
+            
+            if (hit.distanceToRay < bestDist) {
+                bestDist = hit.distanceToRay;
+                bestIndex = idx;
+            }
+        }
+        
+        return bestIndex;
+    }
+    
     findNeighbors(centerIndex, radius) {
         const centerPoint = this.points.userData.pointsData[centerIndex];
         const neighbors = [centerIndex];
         
         this.points.userData.pointsData.forEach((p, i) => {
             if (i === centerIndex) return;
+            // 过滤器激活时，只在过滤后的点集中查找邻居
+            if (this._filteredIndices && !this._filteredIndices.has(i)) return;
             
             const dx = p.x - centerPoint.x;
             const dy = p.y - centerPoint.y;
@@ -669,12 +1069,17 @@ class Viewer3D {
         
         for (let i = 0; i < colors.count; i++) {
             if (neighborSet.has(i)) {
+                // 邻居点：显示原色
                 colors.setXYZ(i, 
                     originalColors[i * 3],
                     originalColors[i * 3 + 1],
                     originalColors[i * 3 + 2]
                 );
+            } else if (this._filteredIndices && !this._filteredIndices.has(i)) {
+                // 被过滤掉的点：近黑色，不可交互
+                colors.setXYZ(i, 0.08, 0.08, 0.08);
             } else {
+                // 过滤集内但非邻居：灰色
                 colors.setXYZ(i, 0.3, 0.3, 0.3);
             }
         }
@@ -697,19 +1102,23 @@ class Viewer3D {
             imagesContainer.innerHTML = '<span class="card-placeholder">点击 🔍 启用采点工具，再点击点云采点</span>';
         }
         
-        // 恢复所有点颜色
+        // 恢复点颜色：如果过滤器激活，恢复到过滤状态；否则恢复全部原色
         if (this.points && this.points.userData.originalColors) {
-            const colors = this.points.geometry.attributes.color;
-            const originalColors = this.points.userData.originalColors;
-            
-            for (let i = 0; i < colors.count; i++) {
-                colors.setXYZ(i, 
-                    originalColors[i * 3],
-                    originalColors[i * 3 + 1],
-                    originalColors[i * 3 + 2]
-                );
+            if (this._filteredIndices) {
+                this._applyFilterToPointCloud();
+            } else {
+                const colors = this.points.geometry.attributes.color;
+                const originalColors = this.points.userData.originalColors;
+                
+                for (let i = 0; i < colors.count; i++) {
+                    colors.setXYZ(i, 
+                        originalColors[i * 3],
+                        originalColors[i * 3 + 1],
+                        originalColors[i * 3 + 2]
+                    );
+                }
+                colors.needsUpdate = true;
             }
-            colors.needsUpdate = true;
         }
     }
     
@@ -849,6 +1258,7 @@ class Viewer3D {
             this.updateStats();
             document.getElementById('loading').style.display = 'none';
             this.addLog('✅ 已加载现有数据', 'success');
+            this._loadFilters();
             
         } catch (error) {
             document.getElementById('loading').style.display = 'none';
@@ -878,6 +1288,7 @@ class Viewer3D {
             this.createPointCloud();
             this.updateStats();
             this.addLog('✅ 数据加载完成：' + filename, 'success');
+            this._loadFilters();
             
         } catch (error) {
             console.error('加载数据失败:', error);
@@ -900,6 +1311,7 @@ class Viewer3D {
             this.createPointCloud();
             this.updateStats();
             this.addLog('✅ 新数据加载完成', 'success');
+            this._loadFilters();
             
         } catch (error) {
             console.error('加载数据失败:', error);
@@ -953,11 +1365,32 @@ class Viewer3D {
         };
         this.scene.add(this.points);
         
+        // 悬停高亮点（采点模式下鼠标所在点放大 3 倍显示）
+        if (this._highlightPoint) {
+            this.scene.remove(this._highlightPoint);
+        }
+        const hlGeometry = new THREE.BufferGeometry();
+        hlGeometry.setAttribute('position', new THREE.BufferAttribute(new Float32Array(3), 3));
+        hlGeometry.setAttribute('color', new THREE.BufferAttribute(new Float32Array(3), 3));
+        const hlMaterial = new THREE.PointsMaterial({
+            size: 6,
+            vertexColors: true,
+            transparent: true,
+            opacity: 1.0,
+            sizeAttenuation: false,
+            depthTest: false   // 始终在最前面渲染
+        });
+        this._highlightPoint = new THREE.Points(hlGeometry, hlMaterial);
+        this._highlightPoint.visible = false;
+        this._highlightPoint.renderOrder = 999;
+        this.scene.add(this._highlightPoint);
+        
         const centerX = (minX + maxX) / 2;
         const centerY = (minY + maxY) / 2;
         const centerZ = (minZ + maxZ) / 2;
         
         this.points.position.set(-centerX, -centerY, -centerZ);
+        this._highlightPoint.position.set(-centerX, -centerY, -centerZ);
         
         const maxDim = Math.max(maxX - minX, maxY - minY, maxZ - minZ);
         this.camera.position.set(centerX, centerY, centerZ + maxDim * 1.5);
@@ -973,7 +1406,38 @@ class Viewer3D {
     }
     
     onMouseMove(event) {
-        // 已移除悬停 tooltip，改为点击交互
+        if (!this.pickMode || !this.points || !this._highlightPoint) {
+            if (this._highlightPoint) this._highlightPoint.visible = false;
+            return;
+        }
+        
+        this.mouse.x = (event.clientX / window.innerWidth) * 2 - 1;
+        this.mouse.y = -(event.clientY / window.innerHeight) * 2 + 1;
+        
+        this.raycaster.setFromCamera(this.mouse, this.camera);
+        this.raycaster.params.Points.threshold = 0.5;
+        
+        const intersects = this.raycaster.intersectObject(this.points);
+        
+        // 按 distanceToRay 排序，选视觉上最接近鼠标的点
+        const hitIndex = this._pickClosestToRay(intersects);
+        
+        if (hitIndex >= 0) {
+            const p = this.points.userData.pointsData[hitIndex];
+            const hlPos = this._highlightPoint.geometry.attributes.position;
+            hlPos.setXYZ(0, p.x, p.y, p.z);
+            hlPos.needsUpdate = true;
+            
+            // 使用该点的原始颜色
+            const origColors = this.points.userData.originalColors;
+            const hlCol = this._highlightPoint.geometry.attributes.color;
+            hlCol.setXYZ(0, origColors[hitIndex * 3], origColors[hitIndex * 3 + 1], origColors[hitIndex * 3 + 2]);
+            hlCol.needsUpdate = true;
+            
+            this._highlightPoint.visible = true;
+        } else {
+            this._highlightPoint.visible = false;
+        }
     }
     
     onResize() {
