@@ -85,38 +85,137 @@
             to { transform: rotate(360deg); }
         }
         
-        #controls {
-            position: absolute;
-            bottom: 20px;
-            left: 50%;
-            transform: translateX(-50%);
-            display: flex;
-            gap: 10px;
-            background: rgba(0, 0, 0, 0.8);
-            padding: 12px 20px;
-            border-radius: 30px;
-            backdrop-filter: blur(10px);
-            border: 1px solid rgba(255, 255, 255, 0.1);
+        /* 悬浮工具球 */
+        #controls-fab {
+            position: fixed;
+            z-index: 500;
+            /* 初始位置由 JS 通过 left/top 设置 */
+            transition: left 0.35s cubic-bezier(0.4, 0, 0.2, 1),
+                        top 0.35s cubic-bezier(0.4, 0, 0.2, 1);
         }
-        
-        #controls button {
-            background: rgba(255, 255, 255, 0.1);
-            border: none;
+
+        #controls-fab.dragging {
+            transition: none;
+        }
+
+        /* 触发球 */
+        #fab-toggle {
+            width: 48px;
+            height: 48px;
+            border-radius: 50%;
+            background: rgba(96, 165, 250, 0.85);
+            border: 1px solid rgba(255, 255, 255, 0.2);
             color: #fff;
-            padding: 8px 16px;
-            border-radius: 20px;
+            font-size: 22px;
+            cursor: grab;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            backdrop-filter: blur(10px);
+            box-shadow: 0 4px 20px rgba(0, 0, 0, 0.4);
+            transition: all 0.35s cubic-bezier(0.4, 0, 0.2, 1);
+            position: relative;
+            z-index: 2;
+            touch-action: none;
+        }
+
+        #fab-toggle:hover {
+            background: rgba(96, 165, 250, 1);
+        }
+
+        #controls-fab.dragging #fab-toggle {
+            cursor: grabbing;
+            transition: none;
+        }
+
+        /* 折叠态：半球吸附到边缘 */
+        #controls-fab.collapsed #fab-toggle {
+            width: 36px;
+            height: 44px;
+            background: rgba(96, 165, 250, 0.5);
+            box-shadow: 0 2px 12px rgba(0, 0, 0, 0.3);
+        }
+
+        #controls-fab.collapsed #fab-toggle:hover {
+            background: rgba(96, 165, 250, 0.8);
+        }
+
+        /* 各边缘吸附方向 */
+        #controls-fab.collapsed[data-edge="right"] #fab-toggle {
+            border-radius: 50% 0 0 50%;
+            transform: translateX(18px);
+        }
+        #controls-fab.collapsed[data-edge="right"] #fab-toggle:hover {
+            transform: translateX(12px);
+        }
+        #controls-fab.collapsed[data-edge="left"] #fab-toggle {
+            border-radius: 0 50% 50% 0;
+            transform: translateX(-18px);
+        }
+        #controls-fab.collapsed[data-edge="left"] #fab-toggle:hover {
+            transform: translateX(-12px);
+        }
+        #controls-fab.collapsed[data-edge="bottom"] #fab-toggle {
+            border-radius: 50% 50% 0 0;
+            transform: translateY(18px);
+        }
+        #controls-fab.collapsed[data-edge="bottom"] #fab-toggle:hover {
+            transform: translateY(12px);
+        }
+        #controls-fab.collapsed[data-edge="top"] #fab-toggle {
+            border-radius: 0 0 50% 50%;
+            transform: translateY(-18px);
+        }
+        #controls-fab.collapsed[data-edge="top"] #fab-toggle:hover {
+            transform: translateY(-12px);
+        }
+
+        /* 按钮面板 */
+        #fab-panel {
+            position: absolute;
+            bottom: 56px;
+            right: -8px;
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+            align-items: flex-end;
+            pointer-events: none;
+            opacity: 0;
+            transform: translateY(12px) scale(0.9);
+            transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+        }
+
+        #controls-fab.expanded #fab-panel {
+            pointer-events: auto;
+            opacity: 1;
+            transform: translateY(0) scale(1);
+        }
+
+        #fab-panel button {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            white-space: nowrap;
+            padding: 10px 16px;
+            background: rgba(0, 0, 0, 0.85);
+            border: 1px solid rgba(255, 255, 255, 0.12);
+            border-radius: 24px;
+            color: #fff;
+            font-size: 13px;
             cursor: pointer;
-            font-size: 14px;
+            backdrop-filter: blur(10px);
+            box-shadow: 0 4px 16px rgba(0, 0, 0, 0.3);
             transition: all 0.2s;
         }
-        
-        #controls button:hover {
-            background: rgba(255, 255, 255, 0.2);
+
+        #fab-panel button:hover {
+            background: rgba(255, 255, 255, 0.15);
         }
-        
-        #controls button.active {
+
+        #fab-panel button.active {
             background: #60a5fa;
             color: #000;
+            border-color: #60a5fa;
         }
         
         #tooltip {
@@ -478,13 +577,46 @@
             visibility: hidden;
         }
         
-        /* 面板最小化状态 */
-        .draggable-panel.minimized .panel-content {
+        /* 面板最小化到悬浮球 */
+        .draggable-panel.hidden-to-fab {
+            display: none !important;
+        }
+
+        /* FAB 中的最小化面板标签 */
+        #fab-minimized-tabs:empty {
             display: none;
         }
-        
-        .draggable-panel.minimized {
-            height: auto !important;
+
+        #fab-minimized-tabs {
+            display: flex;
+            flex-direction: column;
+            gap: 6px;
+            align-items: flex-end;
+            border-top: 1px solid rgba(255, 255, 255, 0.1);
+            padding-top: 8px;
+        }
+
+        .fab-minimized-tab {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            white-space: nowrap;
+            padding: 8px 14px;
+            background: rgba(0, 0, 0, 0.85);
+            border: 1px solid rgba(96, 165, 250, 0.3);
+            border-radius: 24px;
+            color: #9ca3af;
+            font-size: 12px;
+            cursor: pointer;
+            backdrop-filter: blur(10px);
+            box-shadow: 0 4px 16px rgba(0, 0, 0, 0.3);
+            transition: all 0.2s;
+        }
+
+        .fab-minimized-tab:hover {
+            background: rgba(96, 165, 250, 0.2);
+            color: #fff;
+            border-color: #60a5fa;
         }
         
         .panel-header button {
@@ -580,7 +712,7 @@
             background: rgba(96, 165, 250, 0.6);
         }
         
-        .draggable-panel.minimized .panel-resize-handle {
+        .draggable-panel.hidden-to-fab .panel-resize-handle {
             display: none;
         }
         
@@ -950,6 +1082,140 @@
             color: #60a5fa;
             font-weight: 600;
         }
+
+        /* 设置弹窗 */
+        #settings-overlay {
+            display: none;
+            position: fixed;
+            inset: 0;
+            z-index: 2000;
+            background: rgba(0, 0, 0, 0.6);
+            backdrop-filter: blur(6px);
+            justify-content: center;
+            align-items: center;
+        }
+
+        #settings-overlay.open {
+            display: flex;
+        }
+
+        #settings-card {
+            width: min(520px, 90vw);
+            max-height: 80vh;
+            background: rgba(20, 20, 30, 0.95);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            border-radius: 16px;
+            box-shadow: 0 24px 80px rgba(0, 0, 0, 0.6);
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+            animation: settingsFadeIn 0.25s ease;
+        }
+
+        @keyframes settingsFadeIn {
+            from { opacity: 0; transform: scale(0.95) translateY(12px); }
+            to   { opacity: 1; transform: scale(1) translateY(0); }
+        }
+
+        .settings-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 16px 20px;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+            font-size: 15px;
+            font-weight: 600;
+        }
+
+        #btn-settings-close {
+            background: rgba(255, 255, 255, 0.08);
+            border: none;
+            color: #9ca3af;
+            width: 28px;
+            height: 28px;
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 14px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            transition: all 0.15s;
+        }
+
+        #btn-settings-close:hover {
+            background: rgba(248, 113, 113, 0.4);
+            color: #fff;
+        }
+
+        .settings-body {
+            padding: 16px 20px 20px;
+            overflow-y: auto;
+            display: flex;
+            flex-direction: column;
+            gap: 20px;
+        }
+
+        .settings-group-title {
+            font-size: 11px;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            color: #60a5fa;
+            margin-bottom: 10px;
+            font-weight: 600;
+        }
+
+        .settings-row {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            padding: 6px 0;
+            cursor: default;
+        }
+
+        .settings-label {
+            flex: 0 0 120px;
+            font-size: 13px;
+            color: #d1d5db;
+        }
+
+        .settings-row input[type="range"] {
+            flex: 1;
+            height: 4px;
+            -webkit-appearance: none;
+            appearance: none;
+            background: rgba(255, 255, 255, 0.12);
+            border-radius: 2px;
+            outline: none;
+        }
+
+        .settings-row input[type="range"]::-webkit-slider-thumb {
+            -webkit-appearance: none;
+            width: 14px;
+            height: 14px;
+            border-radius: 50%;
+            background: #60a5fa;
+            cursor: pointer;
+            border: 2px solid rgba(0, 0, 0, 0.3);
+            box-shadow: 0 1px 4px rgba(0, 0, 0, 0.3);
+        }
+
+        .settings-row input[type="range"]::-moz-range-thumb {
+            width: 14px;
+            height: 14px;
+            border-radius: 50%;
+            background: #60a5fa;
+            cursor: pointer;
+            border: 2px solid rgba(0, 0, 0, 0.3);
+            box-shadow: 0 1px 4px rgba(0, 0, 0, 0.3);
+        }
+
+        .settings-value {
+            flex: 0 0 36px;
+            text-align: right;
+            font-size: 12px;
+            color: #9ca3af;
+            font-variant-numeric: tabular-nums;
+        }
     </style>
 </head>
 <body>
@@ -1024,12 +1290,60 @@
         <p>加载数据中...</p>
     </div>
     
-    <div id="controls">
-        <button id="btn-rotate" class="active">🔄 自动旋转</button>
-        <button id="btn-reset">🎯 重置视角</button>
-        <button id="btn-screenshot">📷 截图</button>
+    <div id="controls-fab" class="collapsed">
+        <div id="fab-panel">
+            <button id="btn-rotate" class="active">🔄 自动旋转</button>
+            <button id="btn-reset">🎯 重置视角</button>
+            <button id="btn-screenshot">📷 截图</button>
+            <button id="btn-settings">⚙️ 设置</button>
+            <div id="fab-minimized-tabs"></div>
+        </div>
+        <button id="fab-toggle" title="工具栏">🛠</button>
     </div>
     
+    <!-- 设置弹窗 -->
+    <div id="settings-overlay">
+        <div id="settings-card">
+            <div class="settings-header">
+                <span>⚙️ 设置</span>
+                <button id="btn-settings-close" title="关闭">✕</button>
+            </div>
+            <div class="settings-body">
+                <div class="settings-group">
+                    <div class="settings-group-title">外观</div>
+                    <label class="settings-row">
+                        <span class="settings-label">点大小</span>
+                        <input type="range" id="set-point-size" min="1" max="12" step="0.5" value="2">
+                        <span class="settings-value" id="set-point-size-val">2</span>
+                    </label>
+                    <label class="settings-row">
+                        <span class="settings-label">点透明度</span>
+                        <input type="range" id="set-opacity" min="0.1" max="1" step="0.05" value="0.9">
+                        <span class="settings-value" id="set-opacity-val">0.9</span>
+                    </label>
+                    <label class="settings-row">
+                        <span class="settings-label">悬浮放大倍数</span>
+                        <input type="range" id="set-hover-scale" min="1.5" max="8" step="0.5" value="3">
+                        <span class="settings-value" id="set-hover-scale-val">3</span>
+                    </label>
+                </div>
+                <div class="settings-group">
+                    <div class="settings-group-title">动画</div>
+                    <label class="settings-row">
+                        <span class="settings-label">自动旋转速度</span>
+                        <input type="range" id="set-rotate-speed" min="0.2" max="10" step="0.2" value="2">
+                        <span class="settings-value" id="set-rotate-speed-val">2</span>
+                    </label>
+                    <label class="settings-row">
+                        <span class="settings-label">相机过渡平滑度</span>
+                        <input type="range" id="set-cam-smooth" min="0.05" max="1" step="0.05" value="0.15">
+                        <span class="settings-value" id="set-cam-smooth-val">0.15</span>
+                    </label>
+                </div>
+            </div>
+        </div>
+    </div>
+
     <!-- 服务器文件浏览弹窗 -->
     <div id="browse-modal">
         <div id="browse-box">

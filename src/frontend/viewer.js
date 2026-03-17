@@ -9,6 +9,97 @@
  */
 
 // ============================================================
+// OneEuroFilter — 1€ 低通滤波器（标量）
+//   参考: Casiez et al., "1€ Filter: A Simple Speed-based Low-pass Filter
+//         for Noisy Input in Interactive Systems", CHI 2012
+// ============================================================
+class LowPassFilter {
+    constructor(alpha, initval = 0) {
+        this._y = this._s = initval;
+        this._alpha = alpha;
+    }
+    setAlpha(a) { this._alpha = a; }
+    filter(value) {
+        this._y = value;
+        this._s = this._alpha * value + (1 - this._alpha) * this._s;
+        return this._s;
+    }
+    lastValue() { return this._s; }
+}
+
+class OneEuroFilter {
+    /**
+     * @param {number} freq      采样频率 (Hz)
+     * @param {number} minCutoff 最小截止频率（越小越平滑，推荐 0.5-1.0）
+     * @param {number} beta      速度系数（越大对快速运动跟随越快，推荐 0.0-1.0）
+     * @param {number} dCutoff   导数截止频率（推荐 1.0）
+     */
+    constructor(freq = 60, minCutoff = 0.8, beta = 0.5, dCutoff = 1.0) {
+        this._freq = freq;
+        this._minCutoff = minCutoff;
+        this._beta = beta;
+        this._dCutoff = dCutoff;
+        this._x = null;
+        this._dx = null;
+        this._lastTime = null;
+    }
+
+    _alpha(cutoff) {
+        const te = 1.0 / this._freq;
+        const tau = 1.0 / (2 * Math.PI * cutoff);
+        return 1.0 / (1.0 + tau / te);
+    }
+
+    reset() {
+        this._x = null;
+        this._dx = null;
+        this._lastTime = null;
+    }
+
+    filter(value, timestamp = null) {
+        if (this._x === null) {
+            this._x = new LowPassFilter(this._alpha(this._minCutoff), value);
+            this._dx = new LowPassFilter(this._alpha(this._dCutoff), 0);
+            this._lastTime = timestamp;
+            return value;
+        }
+
+        if (timestamp !== null && this._lastTime !== null) {
+            const dt = timestamp - this._lastTime;
+            if (dt > 0) this._freq = 1.0 / dt;
+            this._lastTime = timestamp;
+        }
+
+        const prevX = this._x.lastValue();
+        const dx = (value - prevX) * this._freq;
+        const edx = this._dx.filter(dx);
+        const cutoff = this._minCutoff + this._beta * Math.abs(edx);
+
+        this._x._alpha = this._alpha(cutoff);
+        return this._x.filter(value);
+    }
+}
+
+/**
+ * 3 分量 1€ 向量滤波器，用于 THREE.Vector3
+ */
+class OneEuroVector3Filter {
+    constructor(freq = 60, minCutoff = 0.8, beta = 0.5, dCutoff = 1.0) {
+        this._fx = new OneEuroFilter(freq, minCutoff, beta, dCutoff);
+        this._fy = new OneEuroFilter(freq, minCutoff, beta, dCutoff);
+        this._fz = new OneEuroFilter(freq, minCutoff, beta, dCutoff);
+    }
+    reset() { this._fx.reset(); this._fy.reset(); this._fz.reset(); }
+    filter(vec3, timestamp = null) {
+        return new THREE.Vector3(
+            this._fx.filter(vec3.x, timestamp),
+            this._fy.filter(vec3.y, timestamp),
+            this._fz.filter(vec3.z, timestamp)
+        );
+    }
+}
+
+// ============================================================
 // DraggablePanel - 统一的可拖动面板类
 // ============================================================
 class DraggablePanel {
@@ -32,6 +123,8 @@ class DraggablePanel {
         this._startTop = 0;
         this._resizeStartW = 0;
         this._resizeStartH = 0;
+        this._minimized = false;
+        this._fabTab = null;  // 最小化后在悬浮球中的标签
 
         this._bindEvents();
         this._initResize();
@@ -42,13 +135,12 @@ class DraggablePanel {
         const header = this.element.querySelector('.panel-header');
         if (!header) return;
 
-        // 最小化按钮
+        // 最小化按钮 → 收入悬浮球
         const minimizeBtn = this.element.querySelector('.panel-minimize');
         if (minimizeBtn) {
             minimizeBtn.addEventListener('click', (e) => {
                 e.stopPropagation();
-                this.element.classList.toggle('minimized');
-                minimizeBtn.textContent = this.element.classList.contains('minimized') ? '+' : '−';
+                this.minimize();
             });
         }
 
@@ -117,6 +209,53 @@ class DraggablePanel {
 
         document.addEventListener('mousemove', this._onMouseMove);
         document.addEventListener('mouseup', this._onMouseUp);
+    }
+
+    // ---- 最小化到悬浮球 / 恢复 ----
+
+    minimize() {
+        if (this._minimized) return;
+        this._minimized = true;
+        this.element.classList.add('hidden-to-fab');
+
+        // 从 panel-header 中提取标题文本
+        const headerSpan = this.element.querySelector('.panel-header > span');
+        const title = headerSpan ? headerSpan.textContent.trim() : (this.element.id || '面板');
+
+        // 创建 FAB 中的标签按钮
+        const tab = document.createElement('button');
+        tab.className = 'fab-minimized-tab';
+        tab.textContent = title;
+        tab.title = `恢复「${title}」`;
+        tab.addEventListener('click', (e) => {
+            e.stopPropagation();
+            this.restore();
+        });
+
+        const container = document.getElementById('fab-minimized-tabs');
+        if (container) {
+            container.appendChild(tab);
+        }
+        this._fabTab = tab;
+
+        // 展开 FAB 让用户看到新增的标签
+        const fab = document.getElementById('controls-fab');
+        if (fab && fab.classList.contains('collapsed')) {
+            fab.classList.remove('collapsed');
+            fab.classList.add('expanded');
+        }
+    }
+
+    restore() {
+        if (!this._minimized) return;
+        this._minimized = false;
+        this.element.classList.remove('hidden-to-fab');
+
+        // 移除 FAB 中的标签
+        if (this._fabTab) {
+            this._fabTab.remove();
+            this._fabTab = null;
+        }
     }
 
     _initResize() {
@@ -262,6 +401,19 @@ class Viewer3D {
         this.pickMode = false;
         this._imageObserver = null;
         
+        // 外观参数（可通过设置面板调整）
+        this.pointSize = 2;
+        this.pointOpacity = 0.9;
+        this.hoverScale = 3;
+        this.rotateSpeed = 2.0;
+        this.camSmooth = 0.15;
+        
+        // 相机平滑过渡（1€ 滤波器）
+        this._camTargetFilter = new OneEuroVector3Filter(60, this.camSmooth, 0.1, 1.0);
+        this._camPosFilter = new OneEuroVector3Filter(60, this.camSmooth, 0.1, 1.0);
+        this._camTransition = null;  // { targetPos, targetLookAt, startTime }
+        this._savedCamState = null;  // 选点前的相机状态 { position, target }
+        
         this.init();
         this.initDraggableWindows();
         this.initSelectionCard();
@@ -305,14 +457,14 @@ class Viewer3D {
     }
     
     addLayoutButton() {
-        const controls = document.getElementById('controls');
-        if (!controls) return;
+        const panel = document.getElementById('fab-panel');
+        if (!panel) return;
         
         const btnLayout = document.createElement('button');
         btnLayout.id = 'btn-layout';
         btnLayout.textContent = '📐 自动排版';
         btnLayout.addEventListener('click', () => this.autoLayout());
-        controls.appendChild(btnLayout);
+        panel.appendChild(btnLayout);
     }
     
     initDataPanel() {
@@ -957,11 +1109,15 @@ class Viewer3D {
     }
     
     selectPoint(index) {
+        const isFirstSelection = this.selectedPointIndex === null;
         this.selectedPointIndex = index;
         
         const neighbors = this.findNeighbors(index, this.neighborRadius);
         this.updateSelectionImages(neighbors);
         this.updatePointColors(neighbors);
+        
+        // 相机聚焦到选中点
+        this._flyToPoint(index, isFirstSelection);
     }
     
     /**
@@ -985,6 +1141,94 @@ class Viewer3D {
         }
         
         return bestIndex;
+    }
+    
+    /**
+     * 将数据坐标转为世界坐标（考虑点云偏移）
+     */
+    _dataToWorld(p) {
+        const offset = this.points.position;
+        return new THREE.Vector3(p.x + offset.x, p.y + offset.y, p.z + offset.z);
+    }
+    
+    /**
+     * 相机飞向选中点
+     */
+    _flyToPoint(index, isFirstSelection) {
+        const p = this.points.userData.pointsData[index];
+        const worldPos = this._dataToWorld(p);
+        
+        // 首次选点时保存当前相机状态，用于取消时恢复
+        if (isFirstSelection) {
+            this._savedCamState = {
+                position: this.camera.position.clone(),
+                target: this.controls.target.clone()
+            };
+        }
+        
+        // 计算目标相机位置：从当前视角方向看向选中点，拉近到邻域半径的 2 倍距离
+        const dir = new THREE.Vector3().subVectors(this.camera.position, this.controls.target).normalize();
+        const flyDist = Math.max(this.neighborRadius * 2.0, 3.0);
+        const targetCamPos = new THREE.Vector3().copy(worldPos).addScaledVector(dir, flyDist);
+        
+        this._startCameraTransition(targetCamPos, worldPos);
+    }
+    
+    /**
+     * 相机恢复到选点前的全局视角
+     */
+    _flyToOverview() {
+        if (!this._savedCamState) return;
+        this._startCameraTransition(this._savedCamState.position, this._savedCamState.target);
+        this._savedCamState = null;
+    }
+    
+    /**
+     * 启动相机过渡动画（重置 1€ 滤波器，以当前位置为起点）
+     */
+    _startCameraTransition(targetPos, targetLookAt) {
+        const now = performance.now() / 1000;
+        
+        // 重置并以当前位置播种，避免第一帧跳变
+        this._camTargetFilter.reset();
+        this._camPosFilter.reset();
+        this._camTargetFilter.filter(this.controls.target.clone(), now);
+        this._camPosFilter.filter(this.camera.position.clone(), now);
+        
+        this._camTransition = {
+            targetPos: targetPos.clone(),
+            targetLookAt: targetLookAt.clone(),
+            startTime: performance.now()
+        };
+        // 过渡期间禁用 OrbitControls 的自主更新，避免冲突
+        if (this.controls) this.controls.enabled = false;
+    }
+    
+    /**
+     * 每帧更新相机过渡（在 animate 中调用）
+     */
+    _updateCameraTransition() {
+        if (!this._camTransition) return;
+        
+        const now = performance.now() / 1000;  // 秒
+        
+        const filteredTarget = this._camTargetFilter.filter(this._camTransition.targetLookAt, now);
+        const filteredPos = this._camPosFilter.filter(this._camTransition.targetPos, now);
+        
+        this.controls.target.copy(filteredTarget);
+        this.camera.position.copy(filteredPos);
+        this.camera.lookAt(filteredTarget);
+        
+        // 收敛判定：位置和目标都足够接近则停止
+        const posDist = filteredPos.distanceTo(this._camTransition.targetPos);
+        const tgtDist = filteredTarget.distanceTo(this._camTransition.targetLookAt);
+        if (posDist < 0.01 && tgtDist < 0.01) {
+            this.controls.target.copy(this._camTransition.targetLookAt);
+            this.camera.position.copy(this._camTransition.targetPos);
+            this._camTransition = null;
+            // 过渡结束，恢复 OrbitControls
+            if (this.controls) this.controls.enabled = true;
+        }
     }
     
     findNeighbors(centerIndex, radius) {
@@ -1101,6 +1345,9 @@ class Viewer3D {
         if (imagesContainer) {
             imagesContainer.innerHTML = '<span class="card-placeholder">点击 🔍 启用采点工具，再点击点云采点</span>';
         }
+        
+        // 相机回到全局视角
+        this._flyToOverview();
         
         // 恢复点颜色：如果过滤器激活，恢复到过滤状态；否则恢复全部原色
         if (this.points && this.points.userData.originalColors) {
@@ -1230,7 +1477,7 @@ class Viewer3D {
         this.controls.enableDamping = true;
         this.controls.dampingFactor = 0.05;
         this.controls.autoRotate = true;
-        this.controls.autoRotateSpeed = 2.0;
+        this.controls.autoRotateSpeed = this.rotateSpeed;
         
         const ambientLight = new THREE.AmbientLight(0xffffff, 0.5);
         this.scene.add(ambientLight);
@@ -1351,10 +1598,10 @@ class Viewer3D {
         geometry.setAttribute('color', new THREE.BufferAttribute(colors, 3));
         
         const material = new THREE.PointsMaterial({
-            size: 2,
+            size: this.pointSize,
             vertexColors: true,
             transparent: true,
-            opacity: 0.9,
+            opacity: this.pointOpacity,
             sizeAttenuation: false
         });
         
@@ -1373,7 +1620,7 @@ class Viewer3D {
         hlGeometry.setAttribute('position', new THREE.BufferAttribute(new Float32Array(3), 3));
         hlGeometry.setAttribute('color', new THREE.BufferAttribute(new Float32Array(3), 3));
         const hlMaterial = new THREE.PointsMaterial({
-            size: 6,
+            size: this.pointSize * this.hoverScale,
             vertexColors: true,
             transparent: true,
             opacity: 1.0,
@@ -1449,6 +1696,9 @@ class Viewer3D {
     animate() {
         requestAnimationFrame(() => this.animate());
         
+        // 相机平滑过渡
+        this._updateCameraTransition();
+        
         if (this.controls) {
             this.controls.autoRotate = this.autoRotate;
             this.controls.update();
@@ -1463,6 +1713,11 @@ class Viewer3D {
     }
     
     resetView() {
+        // 中断任何正在进行的相机过渡
+        this._camTransition = null;
+        this._savedCamState = null;
+        if (this.controls) this.controls.enabled = true;
+        
         this.camera.position.set(0, 0, 50);
         this.controls.target.set(0, 0, 0);
         this.controls.update();
@@ -1496,4 +1751,196 @@ document.addEventListener('DOMContentLoaded', () => {
     document.getElementById('btn-screenshot').addEventListener('click', () => {
         viewer.takeScreenshot();
     });
+    
+    // ---- 设置弹窗 ----
+    const settingsOverlay = document.getElementById('settings-overlay');
+    const btnSettings = document.getElementById('btn-settings');
+    const btnSettingsClose = document.getElementById('btn-settings-close');
+
+    const openSettings = () => {
+        // 同步当前值到滑条
+        const sliders = {
+            'set-point-size':    { val: viewer.pointSize },
+            'set-opacity':       { val: viewer.pointOpacity },
+            'set-hover-scale':   { val: viewer.hoverScale },
+            'set-rotate-speed':  { val: viewer.rotateSpeed },
+            'set-cam-smooth':    { val: viewer.camSmooth },
+        };
+        for (const [id, cfg] of Object.entries(sliders)) {
+            const el = document.getElementById(id);
+            if (el) {
+                el.value = cfg.val;
+                document.getElementById(id + '-val').textContent = cfg.val;
+            }
+        }
+        settingsOverlay.classList.add('open');
+    };
+
+    const closeSettings = () => settingsOverlay.classList.remove('open');
+
+    btnSettings.addEventListener('click', openSettings);
+    btnSettingsClose.addEventListener('click', closeSettings);
+    settingsOverlay.addEventListener('click', (e) => {
+        if (e.target === settingsOverlay) closeSettings();
+    });
+
+    // 通用滑条绑定：实时更新参数
+    const bindSlider = (sliderId, apply) => {
+        const slider = document.getElementById(sliderId);
+        const valEl = document.getElementById(sliderId + '-val');
+        if (!slider) return;
+        slider.addEventListener('input', () => {
+            const v = parseFloat(slider.value);
+            valEl.textContent = v;
+            apply(v);
+        });
+    };
+
+    bindSlider('set-point-size', (v) => {
+        viewer.pointSize = v;
+        if (viewer.points) viewer.points.material.size = v;
+        if (viewer._highlightPoint) viewer._highlightPoint.material.size = v * viewer.hoverScale;
+    });
+
+    bindSlider('set-opacity', (v) => {
+        viewer.pointOpacity = v;
+        if (viewer.points) viewer.points.material.opacity = v;
+    });
+
+    bindSlider('set-hover-scale', (v) => {
+        viewer.hoverScale = v;
+        if (viewer._highlightPoint) viewer._highlightPoint.material.size = viewer.pointSize * v;
+    });
+
+    bindSlider('set-rotate-speed', (v) => {
+        viewer.rotateSpeed = v;
+        if (viewer.controls) viewer.controls.autoRotateSpeed = v;
+    });
+
+    bindSlider('set-cam-smooth', (v) => {
+        viewer.camSmooth = v;
+        // 更新所有子滤波器的 minCutoff
+        for (const f of [viewer._camTargetFilter, viewer._camPosFilter]) {
+            f._fx._minCutoff = v;
+            f._fy._minCutoff = v;
+            f._fz._minCutoff = v;
+        }
+    });
+    
+    // ---- 悬浮工具球（可拖动 + 边缘吸附） ----
+    const fab = document.getElementById('controls-fab');
+    const fabToggle = document.getElementById('fab-toggle');
+    let fabTimer = null;
+    let fabDragState = null; // { startX, startY, fabStartLeft, fabStartTop }
+    let fabDidDrag = false;
+    const FAB_SIZE = 48;
+
+    // 初始位置：右下角
+    const initFabPos = () => {
+        fab.style.left = (window.innerWidth - FAB_SIZE - 24) + 'px';
+        fab.style.top = (window.innerHeight - FAB_SIZE - 24) + 'px';
+        fab.dataset.edge = 'right';
+    };
+    initFabPos();
+
+    const collapseFab = () => {
+        fab.classList.remove('expanded');
+        fab.classList.add('collapsed');
+    };
+
+    const resetFabTimer = () => {
+        if (fabTimer) clearTimeout(fabTimer);
+        fabTimer = setTimeout(collapseFab, 4000);
+    };
+
+    // 吸附到最近边缘
+    const snapToEdge = () => {
+        const rect = fab.getBoundingClientRect();
+        const cx = rect.left + FAB_SIZE / 2;
+        const cy = rect.top + FAB_SIZE / 2;
+        const vw = window.innerWidth;
+        const vh = window.innerHeight;
+
+        const distances = [
+            { edge: 'left',   x: 0,              y: cy,             dist: cx },
+            { edge: 'right',  x: vw - FAB_SIZE,  y: cy,             dist: vw - cx },
+            { edge: 'top',    x: cx,              y: 0,              dist: cy },
+            { edge: 'bottom', x: cx,              y: vh - FAB_SIZE,  dist: vh - cy },
+        ];
+
+        // 修正坐标：边缘位置要以 left/top 表示
+        distances[0].x = 0;
+        distances[0].y = cy - FAB_SIZE / 2;
+        distances[1].x = vw - FAB_SIZE;
+        distances[1].y = cy - FAB_SIZE / 2;
+        distances[2].x = cx - FAB_SIZE / 2;
+        distances[2].y = 0;
+        distances[3].x = cx - FAB_SIZE / 2;
+        distances[3].y = vh - FAB_SIZE;
+
+        const nearest = distances.reduce((a, b) => a.dist < b.dist ? a : b);
+        
+        // 限制在可视范围内
+        const finalX = Math.max(0, Math.min(vw - FAB_SIZE, nearest.x));
+        const finalY = Math.max(0, Math.min(vh - FAB_SIZE, nearest.y));
+
+        fab.dataset.edge = nearest.edge;
+        fab.style.left = finalX + 'px';
+        fab.style.top = finalY + 'px';
+    };
+
+    // 拖动
+    fabToggle.addEventListener('pointerdown', (e) => {
+        fabDragState = {
+            startX: e.clientX,
+            startY: e.clientY,
+            fabStartLeft: fab.offsetLeft,
+            fabStartTop: fab.offsetTop
+        };
+        fabDidDrag = false;
+        fab.classList.add('dragging');
+        e.preventDefault();
+    });
+
+    document.addEventListener('pointermove', (e) => {
+        if (!fabDragState) return;
+        const dx = e.clientX - fabDragState.startX;
+        const dy = e.clientY - fabDragState.startY;
+        if (Math.abs(dx) > 3 || Math.abs(dy) > 3) fabDidDrag = true;
+        fab.style.left = (fabDragState.fabStartLeft + dx) + 'px';
+        fab.style.top = (fabDragState.fabStartTop + dy) + 'px';
+    });
+
+    document.addEventListener('pointerup', () => {
+        if (!fabDragState) return;
+        fab.classList.remove('dragging');
+        if (fabDidDrag) {
+            snapToEdge();
+            // 拖动结束后如果是折叠态就保持，展开态则重置计时
+            if (fab.classList.contains('expanded')) resetFabTimer();
+        }
+        fabDragState = null;
+    });
+
+    // 点击（非拖动时）
+    fabToggle.addEventListener('click', (e) => {
+        if (fabDidDrag) return; // 拖动结束忽略此次 click
+        const isExpanded = fab.classList.contains('expanded');
+        if (isExpanded) {
+            collapseFab();
+            if (fabTimer) clearTimeout(fabTimer);
+        } else {
+            fab.classList.remove('collapsed');
+            fab.classList.add('expanded');
+            resetFabTimer();
+        }
+    });
+
+    // 面板内按钮点击后重置计时器
+    document.getElementById('fab-panel').addEventListener('click', () => {
+        resetFabTimer();
+    });
+
+    // 窗口缩放时重新吸附
+    window.addEventListener('resize', () => { snapToEdge(); });
 });
