@@ -79,7 +79,7 @@ def main():
     print("步骤 2: 提取 DINOv3 特征")
     print("=" * 50)
     extractor = DINOv3FeatureExtractor(model_name=args.model)
-    feature_batch = extractor.extract(batch.paths, batch_size=args.batch_size)
+    feature_batch = extractor.extract(batch.paths, batch_size=args.batch_size, labels=batch.labels)
     
     # 3. UMAP 降维
     print("\n" + "=" * 50)

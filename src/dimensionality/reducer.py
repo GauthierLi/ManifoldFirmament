@@ -90,13 +90,16 @@ class UMAPReducer:
                 (coords[2] - reduced_coords[:, 2].min()) / (reduced_coords[:, 2].max() - reduced_coords[:, 2].min() + 1e-8),
             ]
             
+            point_labels = feature_batch.labels[i] if feature_batch.labels is not None else None
+            
             points.append(ReducedPoint(
                 x=float(coords[0]),
                 y=float(coords[1]),
                 z=float(coords[2]),
                 image_path=path,
                 original_index=i,
-                color=color
+                color=color,
+                labels=point_labels
             ))
         
         metadata = {

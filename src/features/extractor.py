@@ -11,7 +11,7 @@ DINOv3 特征提取模块
 import torch
 from PIL import Image
 from pathlib import Path
-from typing import List
+from typing import List, Optional
 import numpy as np
 from tqdm import tqdm
 
@@ -107,13 +107,14 @@ class DINOv3FeatureExtractor:
             image_tensor = transform(image)
         return image_tensor
     
-    def extract(self, image_paths: List[str], batch_size: int = 32) -> FeatureBatch:
+    def extract(self, image_paths: List[str], batch_size: int = 32, labels: Optional[List[List[str]]] = None) -> FeatureBatch:
         """
         批量提取图片特征
         
         Args:
             image_paths: 图片路径列表
             batch_size: 批处理大小
+            labels: 每张图片对应的标签列表，可选
             
         Returns:
             FeatureBatch 包含特征矩阵和路径
@@ -122,17 +123,21 @@ class DINOv3FeatureExtractor:
         
         all_features = []
         valid_paths = []
+        valid_labels = [] if labels is not None else None
         
         print(f"开始提取特征，共 {len(image_paths)} 张图片...")
         
         for i in tqdm(range(0, len(image_paths), batch_size), desc="提取特征"):
             batch_paths = image_paths[i:i + batch_size]
+            batch_labels = labels[i:i + batch_size] if labels is not None else None
             batch_tensors = []
+            batch_valid_indices = []
             
-            for path in batch_paths:
+            for j, path in enumerate(batch_paths):
                 try:
                     tensor = self.preprocess_image(path)
                     batch_tensors.append(tensor)
+                    batch_valid_indices.append(j)
                 except Exception as e:
                     print(f"跳过图片 {path}: {e}")
                     continue
@@ -150,7 +155,10 @@ class DINOv3FeatureExtractor:
                 features = features.cpu().numpy()
             
             all_features.append(features)
-            valid_paths.extend(batch_paths[:len(features)])
+            for j in batch_valid_indices[:len(features)]:
+                valid_paths.append(batch_paths[j])
+                if valid_labels is not None:
+                    valid_labels.append(batch_labels[j])
         
         # 合并所有批次的特征
         if all_features:
@@ -163,5 +171,6 @@ class DINOv3FeatureExtractor:
         return FeatureBatch(
             features=feature_matrix,
             paths=valid_paths,
-            model_version=self.model_name
+            model_version=self.model_name,
+            labels=valid_labels
         )

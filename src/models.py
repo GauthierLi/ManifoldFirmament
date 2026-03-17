@@ -21,6 +21,7 @@ class ImagePathBatch:
     """入口数据：图片路径批次"""
     paths: List[str]
     source_file: str  # 原始 txt 文件路径
+    labels: Optional[List[List[str]]] = None  # 每张图片对应的多标签列表，无标签时为 None
     
     def __len__(self):
         return len(self.paths)
@@ -44,6 +45,7 @@ class FeatureBatch:
     features: np.ndarray  # (N, D)
     paths: List[str]
     model_version: str = "dinov3-base"
+    labels: Optional[List[List[str]]] = None  # 每张图片对应的多标签列表
     
     def __len__(self):
         return self.features.shape[0]
@@ -62,6 +64,7 @@ class ReducedPoint:
     image_path: str
     original_index: int
     color: List[float] = field(default_factory=lambda: [1.0, 1.0, 1.0])  # RGB
+    labels: Optional[List[str]] = None  # 多标签列表
 
 
 @dataclass
@@ -88,17 +91,20 @@ class VisualizationData:
                 return {k: to_python_type(v) for k, v in value.items()}
             return value
         
+        def point_to_dict(p):
+            d = {
+                "x": float(p.x) if hasattr(p.x, 'item') else p.x,
+                "y": float(p.y) if hasattr(p.y, 'item') else p.y,
+                "z": float(p.z) if hasattr(p.z, 'item') else p.z,
+                "image_path": p.image_path,
+                "original_index": int(p.original_index) if hasattr(p.original_index, 'item') else p.original_index,
+                "color": [float(c) if hasattr(c, 'item') else c for c in p.color]
+            }
+            if p.labels is not None:
+                d["labels"] = p.labels
+            return d
+        
         return {
-            "points": [
-                {
-                    "x": float(p.x) if hasattr(p.x, 'item') else p.x,
-                    "y": float(p.y) if hasattr(p.y, 'item') else p.y,
-                    "z": float(p.z) if hasattr(p.z, 'item') else p.z,
-                    "image_path": p.image_path,
-                    "original_index": int(p.original_index) if hasattr(p.original_index, 'item') else p.original_index,
-                    "color": [float(c) if hasattr(c, 'item') else c for c in p.color]
-                }
-                for p in self.points
-            ],
+            "points": [point_to_dict(p) for p in self.points],
             "metadata": to_python_type(self.metadata)
         }
