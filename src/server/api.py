@@ -39,20 +39,12 @@ project_root = Path(__file__).parent.parent.parent
 frontend_dir = Path(__file__).parent.parent / "frontend"
 # output 目录在项目根目录，不是 src 目录下
 output_dir = project_root / "output"
-# 预设数据集目录
-datasets_dir = project_root
 
 # 确保输出目录存在
 output_dir.mkdir(parents=True, exist_ok=True)
 
 # 挂载前端静态文件
 app.mount("/static", StaticFiles(directory=str(frontend_dir)), name="static")
-
-# 预设数据集列表
-PRESET_DATASETS = [
-    {"name": "test_paths.txt", "label": "test_paths.txt (50 张)"},
-    {"name": "test_paths_2000.txt", "label": "test_paths_2000.txt (2000 张)"},
-]
 
 
 @app.get("/view", response_class=HTMLResponse)
@@ -132,21 +124,36 @@ async def get_image(path: str = Query(..., description="图片的绝对路径"))
     return FileResponse(str(image_path))
 
 
-@app.get("/api/datasets")
-async def list_datasets():
-    """获取可用数据集列表"""
-    available = []
-    for dataset in PRESET_DATASETS:
-        dataset_path = datasets_dir / dataset["name"]
-        if dataset_path.exists():
-            available.append(dataset)
-    return {"datasets": available}
+@app.get("/api/browse")
+async def browse_directory(path: str = Query(default=None)):
+    """浏览服务器目录，返回子目录和 .txt 文件列表"""
+    browse_path = Path(path) if path else Path.home()
+
+    if not browse_path.exists() or not browse_path.is_dir():
+        return JSONResponse(status_code=400, content={"error": f"路径不存在或不是目录：{browse_path}"})
+
+    try:
+        dirs, files = [], []
+        for item in sorted(browse_path.iterdir()):
+            try:
+                if item.is_dir() and not item.name.startswith('.'):
+                    dirs.append({"name": item.name, "path": str(item)})
+                elif item.is_file() and item.suffix == '.txt':
+                    files.append({"name": item.name, "path": str(item)})
+            except PermissionError:
+                continue
+
+        parent = str(browse_path.parent) if browse_path != browse_path.parent else None
+        return {"current": str(browse_path), "parent": parent, "dirs": dirs, "files": files}
+
+    except PermissionError:
+        return JSONResponse(status_code=403, content={"error": "无权限访问该目录"})
 
 
 @app.post("/api/process")
 async def process_dataset(
     type: str = Form(...),
-    dataset: str = Form(None),
+    server_path: str = Form(None),
     file: UploadFile = File(None)
 ):
     """处理数据集"""
@@ -154,27 +161,32 @@ async def process_dataset(
         input_file = None
         output_name = "visualization.json"
         
-        if type == "preset":
-            # 使用预设数据集
-            input_file = datasets_dir / dataset
-            if not input_file.exists():
-                return JSONResponse(
-                    status_code=400,
-                    content={"success": False, "error": "数据集不存在"}
-                )
-            output_name = f"visualization_{Path(dataset).stem}.json"
-        elif type == "upload":
+        if type == "upload":
             # 上传文件
             if file is None:
                 return JSONResponse(
                     status_code=400,
                     content={"success": False, "error": "未上传文件"}
                 )
-            input_file = datasets_dir / f"uploaded_{file.filename}"
+            input_file = project_root / f"uploaded_{file.filename}"
             with open(input_file, "wb") as f:
                 content = await file.read()
                 f.write(content)
             output_name = f"visualization_{Path(file.filename).stem}.json"
+        elif type == "server_path":
+            # 使用服务器上已有的文件
+            if not server_path:
+                return JSONResponse(
+                    status_code=400,
+                    content={"success": False, "error": "未指定服务器路径"}
+                )
+            input_file = Path(server_path)
+            if not input_file.exists() or not input_file.is_file():
+                return JSONResponse(
+                    status_code=400,
+                    content={"success": False, "error": f"服务器文件不存在：{server_path}"}
+                )
+            output_name = f"visualization_{input_file.stem}.json"
         else:
             return JSONResponse(
                 status_code=400,

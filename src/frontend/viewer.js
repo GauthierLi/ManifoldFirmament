@@ -267,8 +267,6 @@ class Viewer3D {
         this.initSelectionCard();
         this.initDataPanel();
         
-        this.loadExistingData();
-        
         setTimeout(() => DraggablePanel.loadPositions(), 100);
     }
     
@@ -324,46 +322,120 @@ class Viewer3D {
         
         console.log('初始化点选交互...');
         this.initPointSelection();
-        
-        const datasetSelect = document.getElementById('dataset-select');
-        const fileUpload = document.getElementById('file-upload');
-        const btnLoad = document.getElementById('btn-load');
-        
-        datasetSelect.addEventListener('change', () => {
-            if (datasetSelect.value) {
-                fileUpload.value = '';
-            }
-        });
-        
-        fileUpload.addEventListener('change', () => {
-            if (fileUpload.files.length > 0) {
-                datasetSelect.value = '';
-            }
-        });
-        
-        btnLoad.addEventListener('click', async () => {
-            const selectedDataset = datasetSelect.value;
-            const uploadedFile = fileUpload.files[0];
-            
-            if (!selectedDataset && !uploadedFile) {
-                this.showStatus('请选择数据集或上传文件', 'error');
+
+        try {
+            const fileUpload = document.getElementById('file-upload');
+            const serverPathInput = document.getElementById('server-path-input');
+            const btnBrowse = document.getElementById('btn-browse');
+            const btnLoad = document.getElementById('btn-load');
+
+            if (!fileUpload || !serverPathInput || !btnBrowse || !btnLoad) {
+                console.error('数据面板：必要元素未找到', { fileUpload, serverPathInput, btnBrowse, btnLoad });
                 return;
             }
-            
-            this.setProcessing(true);
-            this.clearLog();
-            this.addLog('🚀 开始处理...', 'highlight');
-            
-            try {
-                let formData = new FormData();
-                
-                if (uploadedFile) {
-                    formData.append('file', uploadedFile);
-                    formData.append('type', 'upload');
-                } else {
-                    formData.append('dataset', selectedDataset);
-                    formData.append('type', 'preset');
+
+            // 两个输入源互斥
+            fileUpload.addEventListener('change', () => {
+                if (fileUpload.files.length > 0) {
+                    serverPathInput.value = '';
                 }
+            });
+
+            serverPathInput.addEventListener('input', () => {
+                if (serverPathInput.value.trim()) {
+                    fileUpload.value = '';
+                }
+            });
+
+            // 文件浏览器弹窗
+            const modal = document.getElementById('browse-modal');
+            const browseList = document.getElementById('browse-list');
+            const browseCurrentPath = document.getElementById('browse-current-path');
+            const btnBrowseUp = document.getElementById('btn-browse-up');
+            const btnBrowseCancel = document.getElementById('btn-browse-cancel');
+            let browseParentPath = null;
+
+            const browseTo = async (path) => {
+                try {
+                    browseList.innerHTML = '<div style="padding:20px;color:#9ca3af;text-align:center">加载中...</div>';
+                    const url = path ? `/api/browse?path=${encodeURIComponent(path)}` : '/api/browse';
+                    const res = await fetch(url);
+                    const data = await res.json();
+                    if (data.error) { alert(data.error); return; }
+
+                    browseCurrentPath.textContent = data.current;
+                    browseParentPath = data.parent;
+                    btnBrowseUp.disabled = !data.parent;
+
+                    browseList.innerHTML = '';
+                    data.dirs.forEach(d => {
+                        const el = document.createElement('div');
+                        el.className = 'browse-item dir';
+                        el.innerHTML = `<span class="icon">📁</span><span>${d.name}</span>`;
+                        el.addEventListener('click', () => browseTo(d.path));
+                        browseList.appendChild(el);
+                    });
+                    data.files.forEach(f => {
+                        const el = document.createElement('div');
+                        el.className = 'browse-item file';
+                        el.innerHTML = `<span class="icon">📄</span><span>${f.name}</span>`;
+                        el.addEventListener('click', () => {
+                            serverPathInput.value = f.path;
+                            fileUpload.value = '';
+                            modal.classList.remove('open');
+                        });
+                        browseList.appendChild(el);
+                    });
+
+                    if (data.dirs.length === 0 && data.files.length === 0) {
+                        browseList.innerHTML = '<div style="padding:20px;color:#6b7280;text-align:center">此目录下没有子目录或 .txt 文件</div>';
+                    }
+                } catch (err) {
+                    console.error('浏览目录失败:', err);
+                    browseList.innerHTML = `<div style="padding:20px;color:#f87171;text-align:center">加载失败：${err.message}</div>`;
+                }
+            };
+
+            if (modal && btnBrowseUp && btnBrowseCancel) {
+                btnBrowse.addEventListener('click', () => {
+                    const startPath = serverPathInput.value.trim() || null;
+                    modal.classList.add('open');
+                    browseTo(startPath);
+                });
+
+                btnBrowseUp.addEventListener('click', () => {
+                    if (browseParentPath) browseTo(browseParentPath);
+                });
+
+                btnBrowseCancel.addEventListener('click', () => modal.classList.remove('open'));
+                modal.addEventListener('click', (e) => { if (e.target === modal) modal.classList.remove('open'); });
+            } else {
+                console.error('浏览弹窗元素未找到', { modal, btnBrowseUp, btnBrowseCancel });
+            }
+
+            btnLoad.addEventListener('click', async () => {
+                const uploadedFile = fileUpload.files[0];
+                const serverPath = serverPathInput.value.trim();
+
+                if (!uploadedFile && !serverPath) {
+                    this.showStatus('请上传文件或指定服务器路径', 'error');
+                    return;
+                }
+
+                this.setProcessing(true);
+                this.clearLog();
+                this.addLog('🚀 开始处理...', 'highlight');
+
+                try {
+                    let formData = new FormData();
+
+                    if (serverPath) {
+                        formData.append('type', 'server_path');
+                        formData.append('server_path', serverPath);
+                    } else {
+                        formData.append('file', uploadedFile);
+                        formData.append('type', 'upload');
+                    }
                 
                 const response = await fetch('/api/process', {
                     method: 'POST',
@@ -391,6 +463,9 @@ class Viewer3D {
                 this.setProcessing(false);
             }
         });
+        } catch (e) {
+            console.error('数据面板初始化失败:', e);
+        }
     }
     
     initLogPanel() {

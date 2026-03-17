@@ -70,3 +70,44 @@ class FolderConverter(BaseConverter):
                     records.append((str(filepath.resolve()), [label]))
 
         return records
+
+
+if __name__ == "__main__":
+    import argparse
+    import sys
+
+    # 直接执行时将项目根目录加入路径
+    sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+    from script.base_converter import BaseConverter, Record  # noqa: F811
+
+    parser = argparse.ArgumentParser(
+        description="FolderConverter - 按文件夹名称为图片打标签，输出路径+标签 txt 文件"
+    )
+    parser.add_argument(
+        "source",
+        type=str,
+        help="包含分类子文件夹的根目录，每个子文件夹名将作为标签"
+    )
+    parser.add_argument(
+        "--output", "-o",
+        type=str,
+        default="output.txt",
+        help="输出 txt 文件路径（默认：output.txt）"
+    )
+    parser.add_argument(
+        "--recursive", "-r",
+        action="store_true",
+        default=False,
+        help="递归扫描子文件夹内的嵌套目录（默认：仅扫描直接子目录）"
+    )
+    parser.add_argument(
+        "--validate",
+        action="store_true",
+        default=False,
+        help="写入前校验图片路径是否存在，跳过不存在的路径"
+    )
+
+    args = parser.parse_args()
+
+    converter = FolderConverter(source=args.source, recursive=args.recursive)
+    converter.convert(output_path=args.output, validate=args.validate)
