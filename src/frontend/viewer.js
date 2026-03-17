@@ -2069,7 +2069,7 @@ class Viewer3D {
                 snapCanvas.height = window.innerHeight * dpr;
                 const snapCtx = snapCanvas.getContext('2d');
 
-                const panels = document.querySelectorAll('.draggable-panel');
+                const panels = document.querySelectorAll('.draggable-panel, #image-preview-popup.visible, #selection-card');
                 for (const panel of panels) {
                     if (panel.id === 'screenshot-card') continue;
                     if (!panel.offsetWidth || !panel.offsetHeight) continue;
@@ -2130,7 +2130,10 @@ class Viewer3D {
         const mimeType = MediaRecorder.isTypeSupported('video/webm;codecs=vp9')
             ? 'video/webm;codecs=vp9'
             : 'video/webm';
-        const recorder = new MediaRecorder(stream, { mimeType });
+        const recorder = new MediaRecorder(stream, {
+            mimeType,
+            videoBitsPerSecond: 8_000_000
+        });
         const chunks = [];
 
         recorder.ondataavailable = (e) => {
