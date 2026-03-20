@@ -1192,7 +1192,7 @@ class Viewer3D {
             this.mouse.y = -(e.clientY / window.innerHeight) * 2 + 1;
             
             this.raycaster.setFromCamera(this.mouse, this.camera);
-            this.raycaster.params.Points.threshold = 0.5;
+            this.raycaster.params.Points.threshold = this._getPickThreshold();
             
             if (this.points) {
                 const intersects = this.raycaster.intersectObject(this.points);
@@ -1221,7 +1221,7 @@ class Viewer3D {
             this.mouse.x = (e.clientX / window.innerWidth) * 2 - 1;
             this.mouse.y = -(e.clientY / window.innerHeight) * 2 + 1;
             this.raycaster.setFromCamera(this.mouse, this.camera);
-            this.raycaster.params.Points.threshold = 0.5;
+            this.raycaster.params.Points.threshold = this._getPickThreshold();
 
             const intersects = this.raycaster.intersectObject(this.points);
             const idx = this._pickClosestToRay(intersects);
@@ -1252,6 +1252,9 @@ class Viewer3D {
         this._syncHighlightBuffer();
 
         popup.classList.add('visible');
+
+        // pinned 状态下只更新内容，不移动位置
+        if (popup.classList.contains('pinned')) return;
 
         // 有上次位置则复用，否则定位到鼠标附近
         if (this._previewLastPos) {
@@ -1308,6 +1311,12 @@ class Viewer3D {
      * 按 distanceToRay（射线垂直距离）排序，而非按 distance（相机距离）排序。
      * @returns {number} 点索引，无命中返回 -1
      */
+    _getPickThreshold() {
+        const dist = this.camera.position.distanceTo(this.controls.target);
+        // 基准：相机距离 50 时 threshold 0.5，线性缩放
+        return Math.max(0.05, dist * 0.01);
+    }
+
     _pickClosestToRay(intersects) {
         let bestIndex = -1;
         let bestDist = Infinity;
@@ -1948,7 +1957,7 @@ class Viewer3D {
         this.mouse.y = -(event.clientY / window.innerHeight) * 2 + 1;
         
         this.raycaster.setFromCamera(this.mouse, this.camera);
-        this.raycaster.params.Points.threshold = 0.5;
+        this.raycaster.params.Points.threshold = this._getPickThreshold();
         
         const intersects = this.raycaster.intersectObject(this.points);
         const hitIndex = this._pickClosestToRay(intersects);
@@ -2221,6 +2230,7 @@ document.addEventListener('DOMContentLoaded', () => {
     let previewDrag = null;
     previewToolbar.addEventListener('mousedown', (e) => {
         if (e.target.closest('button')) return;
+        if (previewPopup.classList.contains('pinned')) return;
         const rect = previewPopup.getBoundingClientRect();
         previewDrag = {
             startX: e.clientX,
@@ -2248,7 +2258,15 @@ document.addEventListener('DOMContentLoaded', () => {
     });
 
     document.getElementById('btn-preview-close').addEventListener('click', () => {
+        previewPopup.classList.remove('pinned');
+        document.getElementById('btn-preview-pin').classList.remove('active');
         viewer._closeImagePreview();
+    });
+
+    document.getElementById('btn-preview-pin').addEventListener('click', () => {
+        const pinBtn = document.getElementById('btn-preview-pin');
+        previewPopup.classList.toggle('pinned');
+        pinBtn.classList.toggle('active');
     });
 
     document.getElementById('btn-preview-fullscreen').addEventListener('click', () => {
@@ -2263,9 +2281,10 @@ document.addEventListener('DOMContentLoaded', () => {
         fullscreenOverlay.classList.remove('open');
     });
 
-    // 点击弹窗外部关闭（排除拖动操作）
+    // 点击弹窗外部关闭（排除拖动操作和固定状态）
     document.addEventListener('pointerdown', (e) => {
         if (previewDrag) return;
+        if (previewPopup.classList.contains('pinned')) return;
         if (previewPopup.classList.contains('visible') && !previewPopup.contains(e.target)) {
             viewer._closeImagePreview();
         }

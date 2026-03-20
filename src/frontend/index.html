@@ -458,7 +458,9 @@
             left: 20px;
             bottom: 80px;
             width: 500px;
-            max-height: 50vh;
+            min-width: 320px;
+            min-height: 200px;
+            max-height: 70vh;
             background: rgba(0, 0, 0, 0.9);
             border-radius: 12px;
             border: 1px solid rgba(255, 255, 255, 0.1);
@@ -517,15 +519,17 @@
         .card-images {
             flex: 1;
             overflow-x: auto;
-            overflow-y: hidden;
-            white-space: nowrap;
+            overflow-y: auto;
             padding: 16px;
             display: flex;
+            flex-wrap: wrap;
             gap: 12px;
-            align-items: center;
+            align-content: flex-start;
+            align-items: flex-start;
         }
         
         .card-images::-webkit-scrollbar {
+            width: 8px;
             height: 8px;
         }
         
@@ -541,6 +545,10 @@
         
         .card-images::-webkit-scrollbar-thumb:hover {
             background: rgba(255, 255, 255, 0.3);
+        }
+        
+        .card-images::-webkit-scrollbar-corner {
+            background: rgba(255, 255, 255, 0.05);
         }
         
         .card-placeholder {
@@ -1424,6 +1432,15 @@
             color: #fff;
         }
 
+        #btn-preview-pin.active {
+            background: #60a5fa;
+            color: #000;
+        }
+
+        #image-preview-popup.pinned .preview-toolbar {
+            cursor: default;
+        }
+
         .preview-img-container {
             display: flex;
             align-items: center;
@@ -1539,6 +1556,7 @@
         <div class="preview-toolbar">
             <span id="preview-title"></span>
             <div class="preview-toolbar-btns">
+                <button id="btn-preview-pin" title="固定窗口">📌</button>
                 <button id="btn-preview-fullscreen" title="全屏查看">⛶</button>
                 <button id="btn-preview-close" title="关闭">✕</button>
             </div>
