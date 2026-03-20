@@ -403,6 +403,18 @@ class Viewer3D {
         this.pickMode = false;
         this._imageObserver = null;
         
+        // 空间 / 归属模式状态
+        this._spaces = [];                 // 空间名称列表
+        this._currentSpace = null;         // 当前选中的空间名称
+        this._pointAttributions = {};      // { pointIndex: { space, type: 'attributed'|'non-attributed' } }
+        this._attributionMode = false;     // 归属模式开关
+        this._attributionType = false;     // false = 归属, true = 非归属
+        this._pendingSelection = new Set();// 待归属批量选中的点索引集合
+        
+        // 展示模式状态（空间卡片）
+        this._displayMode = false;
+        this._displayPositive = true;      // true = 正样本(归属), false = 负样本(非归属)
+        
         // 外观参数（可通过设置面板调整）
         this.pointSize = 2;
         this.pointOpacity = 0.9;
@@ -424,6 +436,7 @@ class Viewer3D {
         this.init();
         this.initDraggableWindows();
         this.initSelectionCard();
+        this.initSpaceCard();
         this.initFilterCard();
         this.initScreenshotCard();
         this.initDataPanel();
@@ -447,6 +460,7 @@ class Viewer3D {
         const layouts = [
             { id: 'info-panel', left: 20, top: 20 },
             { id: 'filter-card', left: 20, top: 260 },
+            { id: 'space-card', left: 20, top: 480 },
             { id: 'screenshot-card', left: viewportWidth - 300, top: viewportHeight - 240 },
             { id: 'data-panel', left: viewportWidth - 420, top: 20 },
             { id: 'log-panel', left: viewportWidth - 620, top: viewportHeight - 380 }
@@ -668,6 +682,25 @@ class Viewer3D {
                 </div>
             </div>
             <div class="panel-content">
+                <div class="attribution-toolbar">
+                    <div class="attribution-toolbar-item">
+                        <span>归属模式</span>
+                        <label class="toggle-switch" title="开启/关闭归属模式">
+                            <input type="checkbox" id="toggle-attribution-mode">
+                            <span class="toggle-slider"></span>
+                        </label>
+                    </div>
+                    <div class="attribution-toolbar-item" id="attribution-type-item">
+                        <span>归属</span>
+                        <label class="toggle-switch disabled" id="toggle-attribution-type-wrap" title="选择归属或非归属">
+                            <input type="checkbox" id="toggle-attribution-type" disabled>
+                            <span class="toggle-slider"></span>
+                        </label>
+                        <span>非归属</span>
+                    </div>
+                    <button id="btn-select-all-attribution" class="attribution-confirm-btn" title="全选当前可见图片" style="margin-left:0;">全选</button>
+                    <button id="btn-save-attribution" class="attribution-confirm-btn" title="保存所选点的属性">确定</button>
+                </div>
                 <div class="card-radius-control">
                     <label>半径：<span id="radius-value" title="双击输入">${this._radiusRatio.toFixed(2)}</span></label>
                     <input type="range" id="radius-slider" min="0" max="1" step="0.01" value="${this._radiusRatio}">
@@ -689,6 +722,66 @@ class Viewer3D {
         // 清除选择
         document.getElementById('btn-clear-pick').addEventListener('click', () => {
             this.deselectPoint();
+        });
+        
+        // 归属模式开关
+        document.getElementById('toggle-attribution-mode').addEventListener('change', (e) => {
+            this._attributionMode = e.target.checked;
+            const typeWrap = document.getElementById('toggle-attribution-type-wrap');
+            const typeInput = document.getElementById('toggle-attribution-type');
+            if (this._attributionMode) {
+                typeWrap.classList.remove('disabled');
+                typeInput.disabled = false;
+                // 开启归属模式时，若已有选中点，刷新图片以添加点击选择事件
+                if (this.selectedPointIndex !== null) {
+                    const neighbors = this.findNeighbors(this.selectedPointIndex, this.neighborRadius);
+                    this.updateSelectionImages(neighbors);
+                }
+            } else {
+                typeWrap.classList.add('disabled');
+                typeInput.disabled = true;
+                // 关闭归属模式时清空待选集合，并刷新图片以移除点击样式
+                this._pendingSelection.clear();
+                if (this.selectedPointIndex !== null) {
+                    const neighbors = this.findNeighbors(this.selectedPointIndex, this.neighborRadius);
+                    this.updateSelectionImages(neighbors);
+                }
+            }
+        });
+        
+        // 归属/非归属开关
+        document.getElementById('toggle-attribution-type').addEventListener('change', (e) => {
+            this._attributionType = e.target.checked;  // false=归属, true=非归属
+            // 切换类型时清空待选集合
+            this._pendingSelection.clear();
+            this._refreshPendingSelectionUI();
+        });
+        
+        // 确定按钮：保存归属
+        document.getElementById('btn-save-attribution').addEventListener('click', () => {
+            this._saveAttribution();
+        });
+        
+        // 全选按钮：选中当前 #card-images 可视区域内的所有图片
+        document.getElementById('btn-select-all-attribution').addEventListener('click', () => {
+            if (!this._attributionMode) return;
+            const container = document.getElementById('card-images');
+            if (!container) return;
+            const containerRect = container.getBoundingClientRect();
+            container.querySelectorAll('.neighbor-image-wrapper[data-point-index]').forEach(wrapper => {
+                const rect = wrapper.getBoundingClientRect();
+                const visible = rect.left < containerRect.right &&
+                                rect.right > containerRect.left &&
+                                rect.top < containerRect.bottom &&
+                                rect.bottom > containerRect.top;
+                if (visible) {
+                    const idx = parseInt(wrapper.dataset.pointIndex, 10);
+                    if (!isNaN(idx)) {
+                        this._pendingSelection.add(idx);
+                        wrapper.classList.add('attribution-selected');
+                    }
+                }
+            });
         });
         
         // 半径滑块（0-1 比例）
@@ -763,8 +856,199 @@ class Viewer3D {
         const btn = document.getElementById('btn-pick');
         btn.classList.toggle('active', this.pickMode);
         
+        // 开启采点模式时，自动关闭展示模式
+        if (this.pickMode && this._displayMode) {
+            this._displayMode = false;
+            const toggleDisplay = document.getElementById('toggle-display-mode');
+            if (toggleDisplay) toggleDisplay.checked = false;
+            const sampleRow = document.getElementById('sample-toggle-row');
+            if (sampleRow) sampleRow.style.display = 'none';
+            // 恢复点云可见性（从展示模式退出）
+            this._refreshPointCloudColors();
+        }
+        
         // 切换画布光标
         document.getElementById('canvas-container').classList.toggle('pick-mode', this.pickMode);
+    }
+    
+    // ---- 空间卡片 ----
+    
+    initSpaceCard() {
+        const card = document.createElement('div');
+        card.id = 'space-card';
+        card.className = 'draggable-panel';
+        card.innerHTML = `
+            <div class="panel-header">
+                <span>🗂️ 空间</span>
+                <div style="display:flex;gap:4px;">
+                    <button class="panel-minimize" title="最小化">−</button>
+                </div>
+            </div>
+            <div class="panel-content">
+                <div class="space-select-row">
+                    <label>当前空间</label>
+                    <select id="space-selector">
+                        <option value="">-- 未选择 --</option>
+                    </select>
+                    <button id="btn-new-space" title="新建空间">+</button>
+                </div>
+                <div class="space-display-row">
+                    <span>展示模式</span>
+                    <label class="toggle-switch" title="开启/关闭展示模式">
+                        <input type="checkbox" id="toggle-display-mode">
+                        <span class="toggle-slider"></span>
+                    </label>
+                </div>
+                <div class="sample-toggle-row" id="sample-toggle-row" style="display:none;">
+                    <span>正样本</span>
+                    <label class="toggle-switch" title="切换正负样本展示">
+                        <input type="checkbox" id="toggle-sample-type">
+                        <span class="toggle-slider"></span>
+                    </label>
+                    <span>负样本</span>
+                </div>
+            </div>
+        `;
+        document.body.appendChild(card);
+        
+        new DraggablePanel(card, { saveable: true });
+        
+        // 新建空间
+        document.getElementById('btn-new-space').addEventListener('click', () => {
+            const name = prompt('请输入新空间名称：');
+            if (!name || !name.trim()) return;
+            const trimmed = name.trim();
+            if (this._spaces.includes(trimmed)) {
+                alert('空间名称已存在');
+                return;
+            }
+            this._spaces.push(trimmed);
+            this._addSpaceOption(trimmed);
+            // 自动切换到新建的空间
+            const selector = document.getElementById('space-selector');
+            if (selector) {
+                selector.value = trimmed;
+                this._currentSpace = trimmed;
+            }
+        });
+        
+        // 切换当前空间
+        document.getElementById('space-selector').addEventListener('change', (e) => {
+            this._currentSpace = e.target.value || null;
+            // 展示模式下切换空间时，刷新点云
+            if (this._displayMode) this._applyDisplayMode();
+        });
+        
+        // 展示模式开关
+        document.getElementById('toggle-display-mode').addEventListener('change', (e) => {
+            this._displayMode = e.target.checked;
+            const sampleRow = document.getElementById('sample-toggle-row');
+            if (this._displayMode) {
+                // 开启展示模式：自动关闭采点模式
+                if (this.pickMode) {
+                    this.pickMode = false;
+                    const btnPick = document.getElementById('btn-pick');
+                    if (btnPick) btnPick.classList.remove('active');
+                    document.getElementById('canvas-container').classList.remove('pick-mode');
+                }
+                if (sampleRow) sampleRow.style.display = 'flex';
+                this._applyDisplayMode();
+            } else {
+                if (sampleRow) sampleRow.style.display = 'none';
+                // 关闭展示模式：恢复正常点云颜色
+                this._refreshPointCloudColors();
+            }
+        });
+        
+        // 正负样本切换
+        document.getElementById('toggle-sample-type').addEventListener('change', (e) => {
+            this._displayPositive = !e.target.checked;  // unchecked=正样本, checked=负样本
+            if (this._displayMode) this._applyDisplayMode();
+        });
+    }
+    
+    // 向空间选择器添加一个选项
+    _addSpaceOption(name) {
+        const selector = document.getElementById('space-selector');
+        if (!selector) return;
+        const opt = document.createElement('option');
+        opt.value = name;
+        opt.textContent = name;
+        selector.appendChild(opt);
+    }
+    
+    // 刷新待选高亮 UI（归属批量选择时）
+    _refreshPendingSelectionUI() {
+        document.querySelectorAll('.neighbor-image-wrapper').forEach(wrapper => {
+            const idx = parseInt(wrapper.dataset.pointIndex, 10);
+            if (!isNaN(idx)) {
+                wrapper.classList.toggle('attribution-selected', this._pendingSelection.has(idx));
+            }
+        });
+    }
+    
+    // 保存所选点的归属属性
+    _saveAttribution() {
+        if (!this._attributionMode) return;
+        if (this._pendingSelection.size === 0) return;
+        
+        const type = this._attributionType ? 'non-attributed' : 'attributed';
+        const space = this._currentSpace;
+        
+        this._pendingSelection.forEach(idx => {
+            this._pointAttributions[idx] = { space, type };
+        });
+        this._pendingSelection.clear();
+        
+        // 刷新图片卡片（隐藏已归属点）
+        if (this.selectedPointIndex !== null) {
+            const neighbors = this.findNeighbors(this.selectedPointIndex, this.neighborRadius);
+            this.updateSelectionImages(neighbors);
+        }
+        
+        // 刷新点云颜色（采点模式下隐藏已归属点）
+        this._refreshPointCloudColors();
+    }
+    
+    // 统一刷新点云颜色（兼顾过滤、归属隐藏、展示模式）
+    _refreshPointCloudColors() {
+        if (!this.points) return;
+        
+        if (this._displayMode) {
+            this._applyDisplayMode();
+        } else if (this.selectedPointIndex !== null) {
+            const neighbors = this.findNeighbors(this.selectedPointIndex, this.neighborRadius);
+            this.updatePointColors(neighbors);
+        } else if (this._filteredIndices) {
+            this._applyFilterToPointCloud();
+        } else {
+            this._restoreAllPointVisibility();
+        }
+    }
+    
+    // 展示模式：仅显示当前空间内符合正/负样本条件的点
+    _applyDisplayMode() {
+        if (!this.points) return;
+        
+        const colors = this.points.geometry.attributes.color;
+        const originalColors = this.points.userData.originalColors;
+        const targetType = this._displayPositive ? 'attributed' : 'non-attributed';
+        const space = this._currentSpace;
+        
+        for (let i = 0; i < colors.count; i++) {
+            const attr = this._pointAttributions[i];
+            const visible = attr && attr.type === targetType && (space === null || attr.space === space);
+            if (visible) {
+                colors.setXYZ(i,
+                    originalColors[i * 3],
+                    originalColors[i * 3 + 1],
+                    originalColors[i * 3 + 2]
+                );
+            } else {
+                colors.setXYZ(i, 0.08, 0.08, 0.08);
+            }
+        }
+        colors.needsUpdate = true;
     }
     
     // ---- 过滤器卡片 ----
@@ -1134,10 +1418,12 @@ class Viewer3D {
         
         const colors = this.points.geometry.attributes.color;
         const originalColors = this.points.userData.originalColors;
-        const positions = this.points.geometry.attributes.position;
         
         for (let i = 0; i < colors.count; i++) {
-            if (this._filteredIndices.has(i)) {
+            // 采点/标注模式下，已归属的点不显示
+            if (this.pickMode && this._pointAttributions[i]) {
+                colors.setXYZ(i, 0.08, 0.08, 0.08);
+            } else if (this._filteredIndices.has(i)) {
                 colors.setXYZ(i,
                     originalColors[i * 3],
                     originalColors[i * 3 + 1],
@@ -1158,11 +1444,16 @@ class Viewer3D {
         const originalColors = this.points.userData.originalColors;
         
         for (let i = 0; i < colors.count; i++) {
-            colors.setXYZ(i,
-                originalColors[i * 3],
-                originalColors[i * 3 + 1],
-                originalColors[i * 3 + 2]
-            );
+            // 采点/标注模式下，已归属的点不显示
+            if (this.pickMode && this._pointAttributions[i]) {
+                colors.setXYZ(i, 0.08, 0.08, 0.08);
+            } else {
+                colors.setXYZ(i,
+                    originalColors[i * 3],
+                    originalColors[i * 3 + 1],
+                    originalColors[i * 3 + 2]
+                );
+            }
         }
         colors.needsUpdate = true;
     }
@@ -1320,18 +1611,20 @@ class Viewer3D {
     _pickClosestToRay(intersects) {
         let bestIndex = -1;
         let bestDist = Infinity;
-        
+
         for (const hit of intersects) {
             const idx = hit.instanceId !== undefined ? hit.instanceId : hit.index;
             // 跳过被过滤掉的点
             if (this._filteredIndices && !this._filteredIndices.has(idx)) continue;
-            
+            // 采点/标注模式下跳过已归属的点
+            if (this.pickMode && this._pointAttributions[idx]) continue;
+
             if (hit.distanceToRay < bestDist) {
                 bestDist = hit.distanceToRay;
                 bestIndex = idx;
             }
         }
-        
+
         return bestIndex;
     }
     
@@ -1478,6 +1771,8 @@ class Viewer3D {
         this.points.userData.pointsData.forEach((p, i) => {
             if (i === centerIndex) return;
             if (this._filteredIndices && !this._filteredIndices.has(i)) return;
+            // 采点模式下跳过已归属的点
+            if (this.pickMode && this._pointAttributions[i]) return;
             const dx = p.x - c.x, dy = p.y - c.y, dz = p.z - c.z;
             const d = Math.sqrt(dx * dx + dy * dy + dz * dz);
             if (d > maxDist) maxDist = d;
@@ -1518,10 +1813,36 @@ class Viewer3D {
         
         imagesContainer.innerHTML = '';
         
-        neighborIndices.forEach(idx => {
+        // 在采点/标注模式下，过滤掉已有归属的点
+        const visibleIndices = neighborIndices.filter(idx =>
+            !this.pickMode || !this._pointAttributions[idx]
+        );
+        
+        const canSelect = this._attributionMode;
+        
+        visibleIndices.forEach(idx => {
             const p = this.points.userData.pointsData[idx];
             const imgWrapper = document.createElement('div');
             imgWrapper.className = 'neighbor-image-wrapper';
+            imgWrapper.dataset.pointIndex = idx;
+            
+            if (canSelect) {
+                imgWrapper.classList.add('attribution-selectable');
+                if (this._pendingSelection.has(idx)) {
+                    imgWrapper.classList.add('attribution-selected');
+                }
+                imgWrapper.addEventListener('click', (e) => {
+                    e.stopPropagation();
+                    if (!this._attributionMode) return;
+                    if (this._pendingSelection.has(idx)) {
+                        this._pendingSelection.delete(idx);
+                        imgWrapper.classList.remove('attribution-selected');
+                    } else {
+                        this._pendingSelection.add(idx);
+                        imgWrapper.classList.add('attribution-selected');
+                    }
+                });
+            }
             
             // 懒加载：先不设 src，用 data-src 暂存
             const img = document.createElement('img');
@@ -1536,6 +1857,11 @@ class Viewer3D {
             imgWrapper.appendChild(img);
             imagesContainer.appendChild(imgWrapper);
         });
+        
+        if (visibleIndices.length === 0 && neighborIndices.length > 0) {
+            imagesContainer.innerHTML = '<span class="card-placeholder">所有邻居点均已完成归属标注</span>';
+            return;
+        }
         
         // 用 IntersectionObserver 按需加载可见区域的图片
         this._imageObserver = new IntersectionObserver((entries) => {
@@ -1566,7 +1892,10 @@ class Viewer3D {
         const originalColors = this.points.userData.originalColors;
         
         for (let i = 0; i < colors.count; i++) {
-            if (neighborSet.has(i)) {
+            // 采点/标注模式下，已归属的点不显示
+            if (this.pickMode && this._pointAttributions[i]) {
+                colors.setXYZ(i, 0.08, 0.08, 0.08);
+            } else if (neighborSet.has(i)) {
                 // 邻居点：显示原色
                 colors.setXYZ(i, 
                     originalColors[i * 3],

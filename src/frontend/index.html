@@ -1478,6 +1478,155 @@
             object-fit: contain;
             border-radius: 4px;
         }
+
+        /* ---- 归属工具栏（相邻图片卡片内） ---- */
+        .attribution-toolbar {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            padding: 6px 10px;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+            flex-wrap: nowrap;
+        }
+
+        .attribution-toolbar-item {
+            display: flex;
+            align-items: center;
+            gap: 4px;
+            font-size: 12px;
+            color: #d1d5db;
+            white-space: nowrap;
+        }
+
+        .attribution-confirm-btn {
+            padding: 3px 10px;
+            border: 1px solid rgba(96, 165, 250, 0.5);
+            border-radius: 5px;
+            background: rgba(96, 165, 250, 0.15);
+            color: #60a5fa;
+            font-size: 12px;
+            cursor: pointer;
+            transition: background 0.2s;
+            margin-left: auto;
+            flex-shrink: 0;
+        }
+
+        .attribution-confirm-btn:hover {
+            background: rgba(96, 165, 250, 0.3);
+        }
+
+        .toggle-switch.disabled .toggle-slider {
+            opacity: 0.35;
+            cursor: not-allowed;
+        }
+
+        /* 归属批量选中高亮 */
+        .neighbor-image-wrapper.attribution-selected {
+            border-color: #f59e0b;
+            box-shadow: 0 0 0 2px rgba(245, 158, 11, 0.4);
+        }
+
+        .neighbor-image-wrapper.attribution-selectable {
+            cursor: pointer;
+        }
+
+        .neighbor-image-wrapper.attribution-selectable:hover {
+            border-color: rgba(245, 158, 11, 0.6);
+        }
+
+        /* ---- 空间卡片 ---- */
+        .space-select-row {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            padding: 8px 10px;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+        }
+
+        .space-select-row > label {
+            font-size: 12px;
+            color: #9ca3af;
+            flex-shrink: 0;
+        }
+
+        .space-select-row select {
+            flex: 1;
+            min-width: 0;
+            background: rgba(255, 255, 255, 0.08);
+            border: 1px solid rgba(255, 255, 255, 0.15);
+            border-radius: 5px;
+            color: #e5e7eb;
+            font-size: 12px;
+            padding: 3px 6px;
+            outline: none;
+        }
+
+        .space-select-row select:focus {
+            border-color: #60a5fa;
+        }
+
+        #btn-new-space {
+            width: 22px;
+            height: 22px;
+            border-radius: 50%;
+            border: 1px solid rgba(96, 165, 250, 0.5);
+            background: rgba(96, 165, 250, 0.1);
+            color: #60a5fa;
+            font-size: 15px;
+            line-height: 1;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            flex-shrink: 0;
+            transition: background 0.2s;
+        }
+
+        #btn-new-space:hover {
+            background: rgba(96, 165, 250, 0.25);
+        }
+
+        .space-display-row {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            padding: 8px 10px;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+        }
+
+        .space-display-row > span {
+            font-size: 12px;
+            color: #9ca3af;
+            flex-shrink: 0;
+        }
+
+        .sample-toggle-row {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            padding: 8px 10px;
+        }
+
+        .sample-toggle-row span {
+            font-size: 12px;
+            color: #d1d5db;
+        }
+
+        #space-card .panel-content {
+            padding: 0;
+        }
+
+        #space-card {
+            position: absolute;
+            left: 20px;
+            top: 480px;
+            width: 280px;
+            background: rgba(0, 0, 0, 0.9);
+            border: 1px solid rgba(96, 165, 250, 0.3);
+            border-radius: 12px;
+            backdrop-filter: blur(10px);
+            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
+        }
     </style>
 <body>
     <div id="canvas-container"></div>
@@ -1642,6 +1791,6 @@
     <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/html2canvas@1.4.1/dist/html2canvas.min.js"></script>
-    <script src="/static/viewer.js?v=7"></script>
+    <script src="/static/viewer.js?v=8"></script>
 </body>
 </html>
